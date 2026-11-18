@@ -21,6 +21,9 @@ Future<void> main() async {
   final r = await Process.run(Platform.resolvedExecutable, ['run', 'test/fixtures/cached_service.dart']);
   check('@Cached na encji z service → StateError przy EntityRegistry.build',
       '${r.stdout}'.contains('ODRZUCONA') && '${r.stdout}'.contains('TestCached'));
+  final rls = await Process.run(Platform.resolvedExecutable, ['run', 'test/fixtures/cached_rls.dart']);
+  check('@Cached on an RLS table without a service column (user_packages) → StateError',
+      '${rls.stdout}'.contains('REFUSED') && '${rls.stdout}'.contains('CachedUserPackage'));
   EntityRegistry.build();
   final m = EntityRegistry.byType(TestDictionary);
   check('@Cached bez service przechodzi, ttl w metadanych', m.cached && m.ttl == 60);

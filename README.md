@@ -245,7 +245,7 @@ in HTTP. All of them work with zero configuration. Each one has a clear owner an
 
 | Layer | What | Where it lives | Invalidation |
 |---|---|---|---|
-| 🪞 Entity mirror | Rows of `@Cached` entities | Redis `entity:<Type>:<id>` | Refreshed on `save`/`insert`/`upsert`, dropped on `delete`; optional TTL |
+| 🪞 Entity mirror | Rows of `@Cached` entities | Redis `entity:<Type>:<id>` | Refreshed on `save`/`insert`/`upsert` and dropped on `delete`, after commit; optional TTL |
 | 🔑 Permissions | Effective permissions of an account | Redis `perm:<login>`, 15 min | `Permissions.invalidate` / `invalidateMany` after the transaction ends |
 | ⚙️ Settings | Settings of one service (secrets **encrypted**) | Redis `settings:<service>`, 60 s | Dropped after every `saveSetting` |
 | 🌐 Domain map | Host → service, name, active flag | Node memory | Re-read every `Tenants.refreshing` (30 s) or after `Tenants.refresh()` |
@@ -261,16 +261,18 @@ reads the same copy:
 - **Read-through:** `readEntity<T>(id)` / `Orm.read<T>(id)` checks Redis first. On a miss it reads the
   database and fills the mirror.
 - **Refreshed on write:** `saveEntity` / `Orm.save`, `Orm.insert` and `Orm.upsert` refresh the mirror.
-  `Orm.delete<T>(id)` removes it.
+  `Orm.delete<T>(id)` removes it. Inside a request the mirror is updated after the transaction commits;
+  a rolled-back write leaves it untouched.
 - `@Cached(ttl: 3600)` expires the mirror after an hour. `ttl: 0` (the default) means no expiry.
 - `readEntitys<T>()` / `Orm.readAll` and `Orm.pick` always go to the database.
 
 Use `@Cached` for global, rarely-changing data (dictionaries, platform config).
 
 > [!IMPORTANT]
-> `@Cached` is for **global data** — dictionaries, platform configuration. An entity with a `service` column
-> cannot be cached: the node refuses to start with
-> `StateError: @Cached on an entity with a service column (…) would bypass service isolation`.
+> `@Cached` is for **global data** — dictionaries, platform configuration. An entity on a table under
+> row-level security (a `service` column, or an engine grant table such as `user_packages`) cannot be
+> cached: the node refuses to start with
+> `StateError: @Cached on an RLS-scoped entity (…) would bypass service isolation`.
 > Tenant data never lands in the shared cache.
 
 ```dart

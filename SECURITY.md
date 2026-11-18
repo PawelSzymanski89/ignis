@@ -247,8 +247,8 @@ These are deliberate limits of the engine API, not bugs; code built on Ignis has
 
 - **Tenant scope of framework state.** `@Synced` fields live under one global Redis key
   (`synced:<Class>.<field>`) shared by every tenant — use them only for platform-wide state, never for
-  per-tenant data. `@Cached` is refused on entities with a `service` column, but the Redis mirror does
-  not know the tenant at all, so do not put it on any other RLS-scoped table either. `Orm.read`,
+  per-tenant data. `@Cached` is refused on every entity whose table is under RLS (not only those with a
+  `service` column), because the Redis mirror does not know the tenant. The mirror is written after COMMIT. `Orm.read`,
   `Orm.readAll` and `Orm.delete` filter by primary key only and rely on RLS; domain queries must still
   carry `AND service = @s` (QUALITY.md).
 - **Elevated blocks are not isolated from their own request.** Inside a request, `Db.asSystem` and

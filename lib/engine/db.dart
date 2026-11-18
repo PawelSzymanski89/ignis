@@ -54,6 +54,7 @@ class DbSession {
   bool _closed = false;
   int _points = 0;
   final _afterEnd = <Future<void> Function()>[];
+  final _afterCommit = <Future<void> Function()>[];
   Future<void> _raisedChain = Future.value();
   int _raised = 0;
 
@@ -109,13 +110,16 @@ class DbSession {
     _points = 0;
     if (end == null) return;
     end.complete(error);
+    var committed = false;
     try {
       await result;
+      committed = error == null;
     } catch (_) {
       if (error == null) rethrow; // a failed COMMIT is a request error; after ROLLBACK [error] counts
     } finally {
-      final tasks = [..._afterEnd];
+      final tasks = [..._afterEnd, if (committed) ..._afterCommit];
       _afterEnd.clear();
+      _afterCommit.clear();
       for (final z in tasks) {
         try {
           await z();
@@ -282,10 +286,11 @@ class Db {
   /// let a parallel request rebuild it from old data (for 900 s), and ending sessions before
   /// COMMIT let someone sign in with the old password and keep the session. After ROLLBACK too: dropping the cache and ending
   /// sessions break nothing, and closing sessions after too many wrong passwords must happen even when the request fails.
-  static Future<void> afterTransaction(Future<void> Function() task) async {
+  /// With [onlyAfterCommit] the task is dropped after ROLLBACK (e.g. a cache write of data that never existed).
+  static Future<void> afterTransaction(Future<void> Function() task, {bool onlyAfterCommit = false}) async {
     final s = _lazy;
     if (s?._opening == null) return task();
-    s!._afterEnd.add(task);
+    (onlyAfterCommit ? s!._afterCommit : s!._afterEnd).add(task);
   }
 
   /// COMMIT of what the current transaction has done so far, and return of the connection — before a transfer to storage.

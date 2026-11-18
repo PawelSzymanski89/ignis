@@ -6,8 +6,8 @@
 //  Primary key: @Entity(pk:) (`id` by default) — save/read/delete/insert/upsert use it.
 //
 //  - saving under a PER-ENTITY LOCK (Redis lock:<Type>:<id>) — no race between nodes;
-//    unlock after the database write (+ for @Cached after the mirror write to Redis),
-//  - @Cached → entity mirror in Redis (every node sees the same; read-through),
+//    unlock after the database write,
+//  - @Cached → entity mirror in Redis (every node sees the same; read-through; written after COMMIT),
 //  - SQL always parameterized (SQL injection closed at the source).
 // ============================================================================
 
@@ -20,6 +20,7 @@ import 'annotations.dart';
 import 'db.dart';
 import 'redis.dart';
 import 'crypto.dart';
+import 'schema.dart';
 
 /// Description of an entity field (column).
 class EntityField {
@@ -72,13 +73,14 @@ class EntityRegistry {
           }
         }
         final name = MirrorSystem.getName(decl.simpleName);
-        // the `entity:<Type>:<id>` mirror does not know the service, and Orm.read from the mirror bypasses RLS —
-        // service A would read service B's row by id alone (SEC-A-5)
-        if (cached != null && fields.any((f) => f.name == 'service')) {
-          throw StateError('@Cached on an entity with a service column ($name) would bypass service isolation');
-        }
-        _byName[name] = EntityMeta(decl, ent.table, fields, cached != null,
+        final meta = EntityMeta(decl, ent.table, fields, cached != null,
             ttl: cached?.ttl ?? 0, pk: ent.pk, unique: ent.unique);
+        // the `entity:<Type>:<id>` mirror does not know the service, and Orm.read from the mirror bypasses RLS —
+        // service A would read service B's row by id alone (SEC-A-5); any table under RLS, not only with `service`
+        if (cached != null && Schema.rlsScoped(meta)) {
+          throw StateError('@Cached on an RLS-scoped entity ($name, table ${ent.table}) would bypass service isolation');
+        }
+        _byName[name] = meta;
       }
     }
   }
@@ -136,11 +138,8 @@ class Orm {
       } else {
         await conn.execute(Sql.named(updateSql(meta)), parameters: values(meta.fields));
       }
-      // @Cached → mirror in Redis (after the database write). We read the current id.
-      if (meta.cached) {
-        final newId = im.getField(pk).reflectee;
-        await _mirror(meta, newId, values(meta.fields));
-      }
+      // @Cached → mirror in Redis after COMMIT. We read the current id.
+      if (meta.cached) await _mirror(meta, im.getField(pk).reflectee, values(meta.fields));
     } finally {
       if (owner != null) await unlock(lockKey!, owner);
     }
@@ -167,7 +166,7 @@ class Orm {
     final meta = EntityRegistry.byType(T);
     await (await Db.connect()).execute(
         Sql.named('DELETE FROM ${meta.table} WHERE ${meta.pk}=@id'), parameters: {'id': id});
-    if (meta.cached) await Redis.del('entity:${meta.typeName}:$id');
+    if (meta.cached) await Db.afterTransaction(() => Redis.del('entity:${meta.typeName}:$id'));
   }
 
   /// Reads one entity of type T by primary key (from the cache when @Cached, otherwise from the database).
@@ -175,7 +174,14 @@ class Orm {
     final meta = EntityRegistry.byType(T);
     if (meta.cached) {
       final raw = await _cacheGet(meta, id);
-      if (raw != null) return _hydrate(meta, raw) as T;
+      if (raw != null) {
+        for (final f in meta.fields) {
+          if (raw[f.name] is String && f.type.toString().replaceAll('?', '') == 'DateTime') {
+            raw[f.name] = DateTime.parse(raw[f.name] as String);
+          }
+        }
+        return _hydrate(meta, raw) as T;
+      }
     }
     final conn = await Db.connect();
     final res = await conn.execute(
@@ -216,10 +222,13 @@ class Orm {
   }
 
   /// Redis mirror: entity:<Type>:<id> = JSON of the fields. ttl from @Cached (0 = no TTL).
-  static Future<void> _mirror(EntityMeta meta, Object id, Map<String, Object?> vals) async {
+  /// Written only after COMMIT — a rolled-back write must not leave a row in the mirror that the database never had.
+  static Future<void> _mirror(EntityMeta meta, Object id, Map<String, Object?> vals) {
     final key = 'entity:${meta.typeName}:$id';
     final json = jsonEncode(vals.map((k, v) => MapEntry(k, v is DateTime ? v.toIso8601String() : v)));
-    meta.ttl > 0 ? await Redis.setEx(key, json, meta.ttl) : await Redis.set(key, json);
+    return Db.afterTransaction(
+        () => meta.ttl > 0 ? Redis.setEx(key, json, meta.ttl) : Redis.set(key, json),
+        onlyAfterCommit: true);
   }
 
   static Future<Map<String, dynamic>?> _cacheGet(EntityMeta meta, Object id) async {

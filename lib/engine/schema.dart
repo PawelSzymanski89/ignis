@@ -136,6 +136,9 @@ class Schema {
   static const _readPolicy = 'ignis_tenant_read';
   static const readPolicy = _readPolicy;
 
+  /// Whether the entity's table gets row-level security (a policy from [_policy]).
+  static bool rlsScoped(EntityMeta m) => _policy(m) != null;
+
   /// (read, write) for a table, or null — a table without service data. Writing is STRICT:
   /// read exceptions (platform accounts, platform entries about the service) do not give the right to
   /// change or forge them from a service context (SEC-A-3). Grant tables have no
