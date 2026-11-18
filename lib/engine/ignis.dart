@@ -1,0 +1,353 @@
+// ============================================================================
+//  ignis.dart — Ignis node startup (called from the app's main)
+// ----------------------------------------------------------------------------
+//  Configured via env:
+//    IGNIS_PORT       (8080 by default)
+//    IGNIS_BIND       (listen address, 127.0.0.1 by default — proxy on another host: a private network address or 0.0.0.0)
+//    IGNIS_NODE       (node label — visible in pages)
+//    IGNIS_SCHEMA     (update | validate | none — auto-schema from @Entity, update by default)
+//    IGNIS_DB_POOL    (pool size, 16 by default — one request = one connection, see RLS)
+//    IGNIS_ASSETS     (theme static directory, 'web/assets' by default)
+//    IGNIS_ADMIN_PASS (admin account password on first start; missing → random, printed to the console)
+//    (DB: IGNIS_DB_* — see lib/engine/db.dart)
+//  Compression: the node gzips only /assets/ static files (with ETag and 304). HTML pages go
+//  uncompressed (CSRF token next to reflected input = BREACH) — gzip for them is the proxy's decision.
+// ============================================================================
+
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
+
+import 'db.dart';
+import 'audit_log.dart';
+import 'engine.dart';
+import 'client_ip.dart';
+import 'config.dart';
+import 'storage.dart';
+import 'orm.dart';
+import 'redis.dart';
+import 'registry.dart';
+import 'render.dart';
+import 'schema.dart';
+import 'seed.dart';
+import 'crypto.dart';
+import 'i18n.dart';
+import 'shutdown.dart';
+
+class Ignis {
+  /// App permissions (key, description) — appended to the core catalog ([Seed.catalog]).
+  static List<(String, String)> permissions = const [];
+
+  /// App settings sections — the settings panel shows only these.
+  static List<Section> settingsSections = const [];
+
+  /// Permanent 301 redirects (old path → new), the query is kept — see [dispatch].
+  static Map<String, String> redirects = const {};
+
+  /// When set, `/` redirects 302 here.
+  static String? homePage;
+
+  /// Product name of the panel — in templates as `{{ product }}`.
+  static String brand = 'Ignis';
+
+  /// Static directories under `/assets/` (app before library) — set in [start].
+  static List<String> assetDirs = const [];
+
+  /// Public directories under their own prefixes (e.g. a browser SDK under `/sdk/`) — see [Mount].
+  static List<Mount> mounts = const [];
+
+  /// Where "Back" on the error page leads (an app with its own panel gives its dashboard).
+  static String errorBackUrl = '/admin';
+
+  /// Node startup. [templates] — app template directories (they win over the package).
+  /// [appAssets] — app static directories under `/assets/`, searched before `IGNIS_ASSETS`.
+  /// App pages and entities must be imported in its `main` (mirrors).
+  static Future<void> start(
+      {List<String> templates = const [],
+      List<(String, String)> permissions = const [],
+      List<Section> settingsSections = const [],
+      Future<void> Function()? seed,
+      List<void Function()> tasks = const [],
+      List<String> appAssets = const [],
+      String brand = 'Ignis',
+      List<String> languages = const [],
+      Map<String, String> redirects = const {},
+      List<Mount> mounts = const [],
+      String? homePage,
+      String? errorBackUrl,
+      String i18n = 'i18n'}) async {
+    Ignis.permissions = permissions;
+    Ignis.settingsSections = settingsSections;
+    Ignis.mounts = mounts;
+    Ignis.errorBackUrl = errorBackUrl ?? homePage ?? '/admin';
+    Ignis.brand = brand;
+    Ignis.redirects = redirects;
+    Ignis.homePage = homePage;
+    final env = Platform.environment;
+    final port = int.parse(env['IGNIS_PORT'] ?? '8080');
+    final node = env['IGNIS_NODE'] ?? 'node';
+    Renderer.paths = [...templates, Renderer.packageTemplates];
+    // [languages] — the first is the default; the app's `[i18n]/<language>.json` files.
+    if (languages.isNotEmpty) I18n.load(i18n, languages);
+    if (!Crypto.available) {
+      throw StateError('No IGNIS_KEY (64 random hex chars — e.g. openssl rand -hex 32) — the node will not start, because '
+          'secrets in settings would reach the database as plain text');
+    }
+
+    // Reflective page scan → route registry (once, at startup).
+    PageRegistry.build();
+    EntityRegistry.build();
+    stdout.writeln('Ignis entities: ${EntityRegistry.names.join(', ')}');
+
+    // AUTO-SCHEMA: tables and columns come from @Entity classes (IGNIS_SCHEMA=update|validate|none).
+    // So a new node needs no migration file — see engine/schema.dart.
+    stdout.writeln('Ignis schema (${env['IGNIS_SCHEMA'] ?? 'update'}):');
+    await Schema.sync();
+    await Seed.seed();
+    await seed?.call();
+    await Storage.prepare();
+    // Audit log cleanup — once a day, one node at a time.
+    AuditLog.start();
+    for (final z in tasks) {
+      z();
+    }
+    stdout.writeln('Ignis node "$node" — registered routes: '
+        '${PageRegistry.routes.join(', ')}');
+
+    // HTTP server: loopback only by default — bare node HTTP from the network would bypass TLS and proxy limits.
+    final server = await HttpServer.bind(env['IGNIS_BIND'] ?? InternetAddress.loopbackIPv4, port);
+    // an idle connection is released after 30 s (120 by default) — fewer hanging sockets
+    server.idleTimeout = const Duration(seconds: 30);
+    stdout.writeln('Ignis listening on ${server.address.address}:$port');
+    if (trustedProxies.isEmpty) {
+      stdout.writeln('Ignis: IGNIS_TRUSTED_PROXIES empty — X-Forwarded-For ignored. Behind a reverse proxy set it '
+          'to the proxy address, otherwise sign-in limits and the audit log see everyone as one address.');
+    }
+    final assets = Ignis.assetDirs = [...appAssets, env['IGNIS_ASSETS'] ?? 'web/assets', Renderer.packageAssets];
+    final shutdown = Shutdown();
+    var closingNow = false;
+    Future<void> finish(ProcessSignal s) async {
+      if (closingNow) return;
+      closingNow = true;
+      stdout.writeln('Ignis: $s — finishing ${shutdown.inFlight} requests (20 s limit)');
+      final clean = await shutdown.close(server);
+      if (!clean) stderr.writeln('Ignis: requests aborted after 20 s');
+      try {
+        await Redis.releaseLocks(node);
+      } catch (e) {
+        stderr.writeln('Ignis: zwolnienie blokad — $e');
+      }
+      try {
+        await Db.close();
+      } catch (e) {
+        stderr.writeln('Ignis: closing the pool — $e');
+      }
+      exit(0);
+    }
+
+    ProcessSignal.sigterm.watch().listen(finish);
+    ProcessSignal.sigint.watch().listen(finish);
+    await for (final req in server) {
+      shutdown.track(Engine.guarded(req, () => dispatch(req, assets)));
+    }
+  }
+}
+
+/// The node's request dispatcher (what [Ignis.start] calls for every request).
+Future<void> dispatch(HttpRequest req, List<String> assets) async {
+  if (req.uri.path == '/' && Ignis.homePage != null) {
+    req.response
+      ..statusCode = HttpStatus.found
+      ..headers.set(HttpHeaders.locationHeader, Ignis.homePage!);
+    return req.response.close();
+  }
+  // moved addresses (bookmarks, links in e-mails) — 301 with the same query
+  if (Ignis.redirects[req.uri.path] case final target?) {
+    req.response
+      ..statusCode = HttpStatus.movedPermanently
+      // path + query only: `GET //evil.example/old` or absolute-form does not carry the host into Location
+      ..headers.set(HttpHeaders.locationHeader, Uri(path: target, query: req.uri.hasQuery ? req.uri.query : null).toString());
+    return req.response.close();
+  }
+  // /files/YYYY/MM/key.ext → the /files route with the key in a parameter.
+  // A path instead of a query string, because that is how it looks in page content and in a CDN cache.
+  if (req.uri.path.startsWith('/files/')) {
+    final key = req.uri.path.substring('/files/'.length);
+    return Engine.handle(req,
+        overridePath: '/files', extraParams: {'k': key});
+  }
+  // theme static files are served before the engine — they are not pages
+  if (req.uri.path.startsWith('/assets/')) return _staticFile(req, assets);
+  for (final m in Ignis.mounts) {
+    if (req.uri.path.startsWith(m.prefix)) return serveMount(req, m);
+  }
+  // every request goes through the full page lifecycle
+  return Engine.handle(req);
+}
+
+/// Asset file from the first directory where it exists (app before library).
+/// Null when missing or when the path leaves the directory.
+File? assetFile(List<String> dirs, String relative) {
+  if (relative.contains('..')) return null;
+  for (final k in dirs) {
+    final f = File('$k/$relative');
+    if (f.existsSync()) return f;
+  }
+  return null;
+}
+
+/// Computed asset versions (until the process restarts).
+final assetVersions = <String, String?>{};
+final _assetLink = RegExp(r'''((?:href|src)=")(/assets/([^"?#]+))"''');
+
+/// Appends `?v=<md5 of content, 10 hex>` to every `href|src="/assets/…"` in [html]
+/// when the file exists in [dirs]. The hash is computed once per file per process.
+String versionAssets(String html, List<String> dirs) {
+  final prefix = dirs.join('|');
+  return html.replaceAllMapped(_assetLink, (m) {
+    final v = assetVersions.putIfAbsent('$prefix|${m[3]}', () {
+      final f = assetFile(dirs, Uri.decodeComponent(m[3]!));
+      return f == null ? null : md5.convert(f.readAsBytesSync()).toString().substring(0, 10);
+    });
+    return v == null ? m[0]! : '${m[1]}${m[2]}?v=$v"';
+  });
+}
+
+/// Serves theme files from the asset directories. Outside the route registry — a file is not a page.
+Future<void> _staticFile(HttpRequest req, List<String> dirs) async {
+  final res = req.response;
+  try {
+    // protection against leaving the directory (../../etc/passwd)
+    final relative = Uri.decodeComponent(req.uri.path.substring('/assets/'.length));
+    if (relative.contains('..')) {
+      res.statusCode = HttpStatus.badRequest;
+      await res.close();
+      return;
+    }
+    File? f;
+    for (final k in dirs) {
+      final p = File('$k/$relative');
+      if (await p.exists()) {
+        f = p;
+        break;
+      }
+    }
+    if (f == null) {
+      res.statusCode = HttpStatus.notFound;
+      await res.close();
+      return;
+    }
+    final mime = assetMime(relative);
+    // the same digest as in ?v= — computed once per file per process, then 304 without reading the file
+    final key = '${dirs.join('|')}|$relative';
+    final etag = 'W/"${assetVersions[key] ??= (await md5.bind(f.openRead()).first).toString().substring(0, 10)}"';
+    if (mime.startsWith('text/html')) res.headers.set('Content-Security-Policy', Engine.csp);
+    res.headers
+      ..contentType = ContentType.parse(mime)
+      // a URL with ?v=<content hash> changes together with the file — see [versionAssets]
+      ..set(HttpHeaders.cacheControlHeader,
+          req.uri.queryParameters.containsKey('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
+    await _sendFile(req, f, mime, etag, key);
+  } catch (_) {
+    res.statusCode = HttpStatus.internalServerError;
+  }
+  await res.close();
+}
+
+/// Gzipped text static files: path → (ETag, gzip). One entry per file — a new ETag replaces it;
+/// files over [_maxGzipInMemory] are gzipped as a stream, so a large build does not sit in RAM.
+final _gzipped = <String, (String, List<int>)>{};
+const _maxGzipInMemory = 1024 * 1024;
+
+/// 304 on If-None-Match, gzip for text (from memory, not on every request), otherwise raw bytes.
+/// Static files only: pages with a CSRF token and reflected input would be open to BREACH once compressed.
+Future<void> _sendFile(HttpRequest req, File f, String mime, String etag, String key) async {
+  final res = req.response;
+  res.headers
+    ..set(HttpHeaders.etagHeader, etag)
+    ..set(HttpHeaders.varyHeader, 'Accept-Encoding');
+  if (req.headers.value(HttpHeaders.ifNoneMatchHeader) == etag) {
+    res.statusCode = HttpStatus.notModified;
+    return;
+  }
+  final gz = _isText(mime) &&
+      (req.headers.value(HttpHeaders.acceptEncodingHeader) ?? '').split(',').any((e) => e.trim().startsWith('gzip'));
+  if (gz) res.headers.set(HttpHeaders.contentEncodingHeader, 'gzip');
+  if (req.method == 'HEAD') return;
+  if (!gz) return res.addStream(f.openRead());
+  final w = _gzipped[key];
+  if (w != null && w.$1 == etag) return res.add(w.$2);
+  if (await f.length() > _maxGzipInMemory) return res.addStream(f.openRead().transform(gzip.encoder));
+  final b = gzip.encode(await f.readAsBytes());
+  _gzipped[key] = (etag, b);
+  res.add(b);
+}
+
+bool _isText(String mime) =>
+    mime.startsWith('text/') || mime.startsWith('application/javascript') || mime.startsWith('application/json') ||
+    mime == 'image/svg+xml' || mime == 'application/wasm';
+
+/// Directory of public files under a URL prefix, e.g. `Mount('/sdk/', 'web/sdk')`: `/sdk/x.js` → `web/sdk/x.js`.
+/// For files loaded from other sites (SDK script, service worker for `importScripts`), hence
+/// `Access-Control-Allow-Origin: *` (the files are public, no cookies). [immutable] says which (relative)
+/// paths never change content — e.g. a versioned directory — and get a one-year cache; the rest
+/// [maxAge] seconds, so a fix to an unversioned URL arrives quickly.
+class Mount {
+  final String prefix;
+  final String catalog;
+  final int maxAge;
+  final bool Function(String relative)? immutable;
+  const Mount(this.prefix, this.catalog, {this.maxAge = 300, this.immutable});
+}
+
+/// Serves a file from [m] (GET/HEAD); 404 when missing or when the path leaves the directory.
+Future<void> serveMount(HttpRequest req, Mount m) async {
+  final res = req.response;
+  try {
+    final relative = Uri.decodeComponent(req.uri.path.substring(m.prefix.length));
+    final f = File('${m.catalog}/$relative');
+    final st = req.method == 'GET' || req.method == 'HEAD' ? await f.stat() : null;
+    if (st == null) {
+      res.statusCode = HttpStatus.methodNotAllowed;
+    } else if (relative.isEmpty || relative.contains('..') || relative.contains('\\') ||
+        st.type != FileSystemEntityType.file) {
+      res.statusCode = HttpStatus.notFound;
+    } else {
+      final mime = assetMime(relative);
+      res.headers
+        ..contentType = ContentType.parse(mime)
+        ..set('Access-Control-Allow-Origin', '*')
+        ..set('X-Content-Type-Options', 'nosniff')
+        ..set(HttpHeaders.cacheControlHeader,
+            m.immutable?.call(relative) == true ? 'public, max-age=31536000, immutable' : 'public, max-age=${m.maxAge}');
+      // ETag from size and modification time: a replaced file at an unversioned URL arrives without a restart
+      final etag = 'W/"${st.size.toRadixString(36)}-${st.modified.microsecondsSinceEpoch.toRadixString(36)}"';
+      await _sendFile(req, f, mime, etag, '${m.prefix}|$relative');
+    }
+  } catch (_) {
+    res.statusCode = HttpStatus.internalServerError;
+  }
+  await res.close();
+}
+
+/// Content type of an asset by extension (also a Flutter web build: html, mjs, wasm — CanvasKit requires application/wasm).
+String assetMime(String p) => switch (p.split('.').last.toLowerCase()) {
+      'css' => 'text/css',
+      'js' || 'mjs' => 'application/javascript',
+      'html' || 'htm' => 'text/html; charset=utf-8',
+      'wasm' => 'application/wasm',
+      'webp' => 'image/webp',
+      'otf' => 'font/otf',
+      'txt' => 'text/plain; charset=utf-8',
+      'json' => 'application/json',
+      'svg' => 'image/svg+xml',
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'gif' => 'image/gif',
+      'ico' => 'image/x-icon',
+      'woff' => 'font/woff',
+      'woff2' => 'font/woff2',
+      'ttf' => 'font/ttf',
+      'eot' => 'application/vnd.ms-fontobject',
+      _ => 'application/octet-stream',
+    };

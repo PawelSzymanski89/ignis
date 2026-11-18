@@ -1,0 +1,37 @@
+name: ignis
+description: >-
+  Ignis Web Engine — biblioteka CMS multidomenowego (jedna instalacja, wiele usług pod własnymi
+  domenami): silnik stron i encji przez adnotacje + panel administracyjny.
+  Używa dart:mirrors — działa tylko w JIT (`dart run`), bez AOT.
+publish_to: none
+version: 0.1.0
+repository: https://github.com/PawelSzymanski89/ignis
+homepage: https://github.com/PawelSzymanski89/ignis
+
+environment:
+  # Refleksja (dart:mirrors) działa na Dart VM w trybie JIT — uruchamiamy przez `dart run`,
+  # świadomie NIE kompilujemy do AOT (dart compile exe wywala mirrors).
+  sdk: ^3.6.0
+
+dependencies:
+  # Silnik szablonów — Jinja: {% extends %}/{% block %}/{% macro %}. Bez autoescape — escapuje Renderer (engine/render.dart).
+  # Mustache odrzucony: brak dziedziczenia szablonów, a powłoka panelu musi siedzieć
+  # w JEDNYM layoucie. 0.6.7, bo 0.7 wymaga Dart >=3.12.
+  jinja: ^0.6.7
+  # Sterownik Postgresa (relacyjna baza — login sprawdza usera w tabeli users).
+  postgres: ^3.0.0
+  # bcrypt — WOLNY, solony hash haseł (anty-brute-force). Pure Dart, bez codegenu.
+  bcrypt: ^1.1.3
+  # crypto: sha256 do tokenów/pomocniczo (nie do haseł).
+  crypto: ^3.0.0
+  # Klient MinIO/S3 — magazyn plików CMS-a.
+  minio: ^3.5.8
+  # Parser multipart/form-data (upload plików). Pakiet zespołu Darta, bez codegenu.
+  mime: ^2.0.0
+  # Strefy IANA (harmonogramy w strefie projektu / odbiorcy) — baza tzdata w pakiecie, pure Dart.
+  timezone: ^0.10.1
+  # Klient Redis — sesje wspólne dla wszystkich instancji.
+  redis: ^4.0.0
+  # AES-GCM dla sekretów w tabeli settings (engine/crypto.dart). Już był w drzewie
+  # zależności (minio), tu jawnie, bo używamy go bezpośrednio.
+  pointycastle: ^4.0.0

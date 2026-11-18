@@ -1,0 +1,188 @@
+{% extends layout %}
+{% block heading %}{{ t('ignis.files.title') }}{% endblock %}
+{% block breadcrumb %}{{ t('ignis.files.breadcrumb') }}{% endblock %}
+
+{% block content %}
+{% from "_components.html" import card, tile %}
+{% from "_list.html" import pager %}
+
+<div class="row">
+  {{ tile(t('ignis.files.stat_files'), stat_files, 'fe fe-file', color='primary', description=t('ignis.files.stat_files_sub')) }}
+  {{ tile(t('ignis.files.stat_folders'), stat_folders, 'fe fe-folder', color='secondary', description=t('ignis.files.stat_folders_sub')) }}
+  {{ tile(t('ignis.files.stat_size'), stat_size, 'fe fe-hard-drive', color='success', description=t('ignis.files.stat_size_sub')) }}
+</div>
+
+<div class="card custom-card">
+  <div class="card-header justify-content-between">
+    <nav><ol class="breadcrumb mb-0">
+      {% for o in breadcrumbs %}
+      <li class="breadcrumb-item"><a href="/admin/files?f={{ o.path }}"><i class="fe fe-folder me-1"></i>{{ o.name }}</a></li>
+      {% endfor %}
+    </ol></nav>
+    <span class="text-muted fs-12">{{ folder }}</span>
+  </div>
+
+  <div class="card-body">
+    {# ── upload area ── #}
+    {% if can_upload %}
+    <form method="post" enctype="multipart/form-data" class="mb-4">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="triggerAction" value="upload">
+      <input type="hidden" name="f" value="{{ folder }}">
+      <div class="file-drop border rounded p-4 text-center">
+        <i class="fe fe-upload-cloud fs-32 text-muted d-block mb-2"></i>
+        <p class="mb-1 fw-semibold">{{ t('ignis.files.drop') }}</p>
+        <p class="fs-12 text-muted mb-0 file-name">{{ t('ignis.files.drop_target')|replace('{folder}', '<code>' ~ folder ~ '</code>') }}</p>
+        <input type="file" name="files" multiple class="d-none">
+      </div>
+      <button type="submit" class="btn btn-primary btn-wave mt-2">
+        <i class="fe fe-upload me-1"></i>{{ t('ignis.files.upload') }}
+      </button>
+    </form>
+    {% endif %}
+
+    {% if not can_upload and not can_folders %}
+    <div class="alert alert-info" role="alert">
+      <i class="fe fe-eye me-2"></i>{{ t('ignis.files.view_only')|replace('{section}', '<code>files</code>') }}
+    </div>
+    {% endif %}
+
+    {# ── folders ── #}
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="fw-semibold mb-0">{{ t('ignis.files.folders') }}</h6>
+      {% if can_folders %}
+      <form method="post" class="d-flex gap-2">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="triggerAction" value="new_folder">
+        <input type="hidden" name="f" value="{{ folder }}">
+        <input class="form-control form-control-sm" name="name" placeholder="{{ t('ignis.files.folder_name') }}" required>
+        <button class="btn btn-sm btn-success btn-wave text-nowrap"><i class="fe fe-folder-plus me-1"></i>{{ t('ignis.files.create') }}</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <div class="row mb-4">
+      {% if not at_root %}
+      <div class="col-md-3 mb-2">
+        <a href="/admin/files?f={{ parent }}" class="d-block border rounded p-3 text-decoration-none">
+          <i class="fe fe-corner-left-up me-2"></i>{{ t('ignis.files.up') }}
+        </a>
+      </div>
+      {% endif %}
+      {% for f in folders %}
+      <div class="col-md-3 mb-2">
+        <div class="border rounded p-3 d-flex align-items-center">
+          <a href="/admin/files?f={{ f.path }}" class="flex-grow-1 text-decoration-none">
+            <i class="fe fe-folder me-2 text-warning"></i>{{ f.name }}
+            <span class="d-block fs-11 text-muted ms-4">{{ t('ignis.files.folder_counts')|replace('{files}', f.file_count ~ '')|replace('{folders}', f.subfolder_count ~ '') }}</span>
+          </a>
+          {% if f.empty and can_folders %}
+          <form method="post" class="ms-2">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="triggerAction" value="folder_delete">
+            <input type="hidden" name="f" value="{{ folder }}">
+            <input type="hidden" name="id" value="{{ f.id }}">
+            <button class="btn btn-sm btn-icon btn-danger-light" title="{{ t('ignis.files.delete_folder') }}"
+                    data-confirm="{{ t('ignis.files.delete_folder_confirm')|replace('{name}', f.name) }}"><i class="fe fe-trash-2"></i></button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      {% if not folders and at_root %}
+      <div class="col-12"><p class="text-muted fs-13">{{ t('ignis.files.no_subfolders') }}</p></div>
+      {% endif %}
+    </div>
+
+    {# ── files ── #}
+    <h6 class="fw-semibold mb-2">{{ t('ignis.files.title') }}</h6>
+    {% if not file_list %}
+      <div class="text-center p-4 text-muted">
+        <i class="fe fe-inbox fs-32 d-block mb-2 op-5"></i>{{ t('ignis.files.empty') }}
+      </div>
+    {% else %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead><tr><th style="width:60px"></th><th>{{ t('ignis.files.name') }}</th><th>{{ t('ignis.files.size') }}</th><th>{{ t('ignis.files.uploaded_by') }}</th><th>{{ t('ignis.files.when') }}</th><th></th></tr></thead>
+        <tbody>
+        {% for p in file_list %}
+          <tr>
+            <td>
+              {% if p.image %}
+                <img src="{{ p.url }}" alt="{{ p.description }}" class="rounded" style="width:44px;height:44px;object-fit:cover">
+              {% else %}
+                <span class="avatar avatar-sm bg-secondary-transparent"><i class="fe fe-file"></i></span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{{ p.url }}" target="_blank" class="fw-semibold text-decoration-none">{{ p.name }}</a>
+              <span class="d-block fs-11 text-muted">{{ p.type }}{% if p.description %} · {{ p.description }}{% endif %}</span>
+            </td>
+            <td class="text-muted fs-13">{{ p.size }}</td>
+            <td class="text-muted fs-13">{{ p.uploaded_by }}</td>
+            <td class="text-muted fs-13">{{ p.uploaded_at }}</td>
+            <td class="text-end text-nowrap">
+              {% if can_edit %}
+              <button class="btn btn-sm btn-icon btn-primary-light" data-bs-toggle="collapse"
+                      data-bs-target="#file-{{ p.id }}" title="{{ t('ignis.files.edit') }}"><i class="fe fe-edit-2"></i></button>
+              {% endif %}
+              {% if can_delete %}
+              <form method="post" class="d-inline">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input type="hidden" name="triggerAction" value="file_delete">
+                <input type="hidden" name="f" value="{{ folder }}">
+                <input type="hidden" name="id" value="{{ p.id }}">
+                <button class="btn btn-sm btn-icon btn-danger-light" title="{{ t('ignis.files.delete') }}"
+                        data-confirm="{{ t('ignis.files.delete_confirm')|replace('{name}', p.name) }}"><i class="fe fe-trash-2"></i></button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% if can_edit %}
+          <tr class="collapse" id="file-{{ p.id }}">
+            <td colspan="6" class="bg-light">
+              <form method="post" class="row g-2 align-items-end">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input type="hidden" name="triggerAction" value="file_save">
+                <input type="hidden" name="f" value="{{ folder }}">
+                <input type="hidden" name="id" value="{{ p.id }}">
+                <div class="col-md-3">
+                  <label class="form-label fs-12">{{ t('ignis.files.name') }}</label>
+                  <input class="form-control form-control-sm" name="name" value="{{ p.name }}">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fs-12">{{ t('ignis.files.description') }}</label>
+                  <input class="form-control form-control-sm" name="description" value="{{ p.description }}">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fs-12">{{ t('ignis.files.move_to') }}</label>
+                  <input class="form-control form-control-sm" name="move_to" value="{{ folder }}" list="folder-paths">
+                </div>
+                <div class="col-md-2">
+                  <button class="btn btn-sm btn-primary btn-wave w-100">{{ t('ignis.files.save') }}</button>
+                </div>
+                <div class="col-12">
+                  <span class="fs-11 text-muted">{{ t('ignis.files.address') }} <code>{{ p.url }}</code></span>
+                </div>
+              </form>
+            </td>
+          </tr>
+          {% endif %}
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {# folder list ONCE per page, not in every file row #}
+    {% if can_edit %}<datalist id="folder-paths">{% for s in paths %}<option value="{{ s }}">{% endfor %}</datalist>{% endif %}
+    {{ pager(listing, prev_text=t('ignis.list.prev'), next_text=t('ignis.list.next'), of=t('ignis.list.of'), rows=t('ignis.files.per_page'), apply=t('ignis.list.show')) }}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .file-drop { cursor:pointer; border-style:dashed !important; transition:background .15s, border-color .15s; }
+  .file-drop:hover, .file-drop.over { background:rgba(var(--primary-rgb),.08); border-color:rgb(var(--primary-rgb)) !important; }
+</style>
+{% endblock %}

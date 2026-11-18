@@ -1,0 +1,251 @@
+// ============================================================================
+//  orm.dart — reflection ODM (ZERO codegen)
+// ----------------------------------------------------------------------------
+//  @Entity on a plain class → mirrors read the fields → parameterized SQL.
+//  API (from PageEngine): saveEntity, readEntity<T>(id), readEntitys<T>().
+//  Primary key: @Entity(pk:) (`id` by default) — save/read/delete/insert/upsert use it.
+//
+//  - saving under a PER-ENTITY LOCK (Redis lock:<Type>:<id>) — no race between nodes;
+//    unlock after the database write (+ for @Cached after the mirror write to Redis),
+//  - @Cached → entity mirror in Redis (every node sees the same; read-through),
+//  - SQL always parameterized (SQL injection closed at the source).
+// ============================================================================
+
+import 'dart:convert';
+import 'dart:mirrors';
+
+import 'package:postgres/postgres.dart' hide Type;
+
+import 'annotations.dart';
+import 'db.dart';
+import 'redis.dart';
+import 'crypto.dart';
+
+/// Description of an entity field (column).
+class EntityField {
+  final String name;
+  final Type type;
+  EntityField(this.name, this.type);
+}
+
+/// Entity metadata collected by reflection once, at startup.
+class EntityMeta {
+  final ClassMirror cm;
+  final String table;
+  final List<EntityField> fields;
+  final bool cached;
+  /// Lifetime of the Redis mirror in seconds (from @Cached(ttl:)); 0 = no expiry.
+  final int ttl;
+  /// Primary key column (from @Entity(pk:)); 'id' by default.
+  final String pk;
+  /// UNIQUE constraints (from @Entity(unique:)) — used by auto-schema.
+  final List<List<String>> unique;
+  EntityMeta(this.cm, this.table, this.fields, this.cached,
+      {this.ttl = 0, this.pk = 'id', this.unique = const []});
+
+  /// Fields without the primary key (for INSERT/UPDATE).
+  Iterable<EntityField> get nonId => fields.where((f) => f.name != pk);
+  String get typeName => MirrorSystem.getName(cm.simpleName);
+}
+
+/// Entity registry: Type → metadata. Built once (EntityRegistry.build()).
+class EntityRegistry {
+  static final Map<String, EntityMeta> _byName = {};
+
+  static void build() {
+    _byName.clear();
+    for (final lib in currentMirrorSystem().libraries.values) {
+      for (final decl in lib.declarations.values) {
+        if (decl is! ClassMirror) continue;
+        Entity? ent;
+        Cached? cached;
+        for (final m in decl.metadata) {
+          final r = m.reflectee;
+          if (r is Entity) ent = r;
+          if (r is Cached) cached = r;
+        }
+        if (ent == null) continue;
+        final fields = <EntityField>[];
+        for (final d in decl.declarations.values) {
+          if (d is VariableMirror && !d.isStatic) {
+            fields.add(EntityField(MirrorSystem.getName(d.simpleName), d.type.reflectedType));
+          }
+        }
+        final name = MirrorSystem.getName(decl.simpleName);
+        // the `entity:<Type>:<id>` mirror does not know the service, and Orm.read from the mirror bypasses RLS —
+        // service A would read service B's row by id alone (SEC-A-5)
+        if (cached != null && fields.any((f) => f.name == 'service')) {
+          throw StateError('@Cached on an entity with a service column ($name) would bypass service isolation');
+        }
+        _byName[name] = EntityMeta(decl, ent.table, fields, cached != null,
+            ttl: cached?.ttl ?? 0, pk: ent.pk, unique: ent.unique);
+      }
+    }
+  }
+
+  static Iterable<String> get names => _byName.keys;
+  static EntityMeta byType(Type t) => _byName[t.toString()]!;
+  static EntityMeta byName(String n) => _byName[n]!;
+  static EntityMeta byInstance(Object o) => _byName[o.runtimeType.toString()]!;
+}
+
+class Orm {
+  static String _insertPrefix(EntityMeta m) {
+    final cols = m.fields.map((f) => f.name);
+    return 'INSERT INTO ${m.table} (${cols.join(',')}) '
+        'VALUES (${cols.map((c) => '@$c').join(',')}) ON CONFLICT (${m.pk}) DO ';
+  }
+
+  /// SQL of [insert]: a duplicate primary key is skipped.
+  static String insertSql(EntityMeta m) => '${_insertPrefix(m)}NOTHING';
+
+  /// SQL of [upsert]: a duplicate primary key overwrites the other columns.
+  static String upsertSql(EntityMeta m) =>
+      '${_insertPrefix(m)}UPDATE SET ${m.nonId.map((f) => '${f.name}=EXCLUDED.${f.name}').join(',')}';
+
+  /// SQL UPDATE in [save] (key parameter = PK column name).
+  static String updateSql(EntityMeta m) =>
+      'UPDATE ${m.table} SET ${m.nonId.map((f) => '${f.name}=@${f.name}').join(',')} '
+      'WHERE ${m.pk}=@${m.pk}';
+
+  /// Saves an entity (INSERT when the primary key is null — the database assigns it, otherwise UPDATE
+  /// by key) under a per-entity lock. Keys assigned by the app: [insert]/[upsert].
+  static Future<void> save(Object entity) async {
+    final meta = EntityRegistry.byInstance(entity);
+    final im = reflect(entity);
+    final pk = Symbol(meta.pk);
+    final id = im.getField(pk).reflectee;
+    final conn = await Db.connect();
+
+    // field values (without id on INSERT)
+    Map<String, Object?> values(Iterable<EntityField> fs) => {
+          for (final f in fs) f.name: im.getField(Symbol(f.name)).reflectee,
+        };
+
+    // PER-ENTITY lock (for an existing id). For a new one (INSERT) the database assigns the id.
+    final lockKey = id == null ? null : 'lock:${meta.typeName}:$id';
+    final owner = lockKey == null ? null : await lock(lockKey);
+    try {
+      if (id == null) {
+        // INSERT ... RETURNING id
+        final cols = meta.nonId.map((f) => f.name).toList();
+        final sql = 'INSERT INTO ${meta.table} (${cols.join(',')}) '
+            'VALUES (${cols.map((c) => '@$c').join(',')}) RETURNING ${meta.pk}';
+        final res = await conn.execute(Sql.named(sql), parameters: values(meta.nonId));
+        im.setField(pk, res.first[0]); // write the assigned id back
+      } else {
+        await conn.execute(Sql.named(updateSql(meta)), parameters: values(meta.fields));
+      }
+      // @Cached → mirror in Redis (after the database write). We read the current id.
+      if (meta.cached) {
+        final newId = im.getField(pk).reflectee;
+        await _mirror(meta, newId, values(meta.fields));
+      }
+    } finally {
+      if (owner != null) await unlock(lockKey!, owner);
+    }
+  }
+
+  /// INSERT with an app-assigned primary key; a duplicate key is skipped.
+  /// true = row added. No lock — a single query is atomic.
+  static Future<bool> insert(Object entity) => _insertRow(entity, insertSql);
+
+  /// INSERT or overwrite of the row with the same primary key.
+  static Future<void> upsert(Object entity) => _insertRow(entity, upsertSql);
+
+  static Future<bool> _insertRow(Object entity, String Function(EntityMeta) sql) async {
+    final meta = EntityRegistry.byInstance(entity);
+    final im = reflect(entity);
+    final vals = {for (final f in meta.fields) f.name: im.getField(Symbol(f.name)).reflectee};
+    final r = await (await Db.connect()).execute(Sql.named(sql(meta)), parameters: vals);
+    if (r.affectedRows > 0 && meta.cached) await _mirror(meta, vals[meta.pk]!, vals);
+    return r.affectedRows > 0;
+  }
+
+  /// Deletes an entity of type T by primary key (and its mirror when @Cached).
+  static Future<void> delete<T>(Object id) async {
+    final meta = EntityRegistry.byType(T);
+    await (await Db.connect()).execute(
+        Sql.named('DELETE FROM ${meta.table} WHERE ${meta.pk}=@id'), parameters: {'id': id});
+    if (meta.cached) await Redis.del('entity:${meta.typeName}:$id');
+  }
+
+  /// Reads one entity of type T by primary key (from the cache when @Cached, otherwise from the database).
+  static Future<T?> read<T>(Object id) async {
+    final meta = EntityRegistry.byType(T);
+    if (meta.cached) {
+      final raw = await _cacheGet(meta, id);
+      if (raw != null) return _hydrate(meta, raw) as T;
+    }
+    final conn = await Db.connect();
+    final res = await conn.execute(
+      Sql.named('SELECT * FROM ${meta.table} WHERE ${meta.pk}=@id'),
+      parameters: {'id': id},
+    );
+    if (res.isEmpty) return null;
+    final map = res.first.toColumnMap();
+    if (meta.cached) await _mirror(meta, id, map); // add to the mirror
+    return _hydrate(meta, map) as T;
+  }
+
+  /// Reads all entities of type T (v0: from the database).
+  static Future<List<T>> readAll<T>() async {
+    final meta = EntityRegistry.byType(T);
+    final conn = await Db.connect();
+    final res = await conn.execute('SELECT * FROM ${meta.table} ORDER BY ${meta.pk}');
+    return res.map((row) => _hydrate(meta, row.toColumnMap()) as T).toList();
+  }
+
+  /// Entities of type T from any query with named parameters (`SELECT * FROM table WHERE …`).
+  /// Columns matched by field name; fields without a column in the result keep their default value.
+  static Future<List<T>> pick<T>(String sql, [Map<String, Object?> params = const {}]) async {
+    final meta = EntityRegistry.byType(T);
+    final res = await (await Db.connect()).execute(Sql.named(sql), parameters: params);
+    return [for (final row in res) _hydrate(meta, row.toColumnMap()) as T];
+  }
+
+  // --- pomocnicze -----------------------------------------------------------
+
+  /// Builds an entity instance from a column→value map (mirrors newInstance + setField).
+  static Object _hydrate(EntityMeta meta, Map<String, dynamic> map) {
+    final inst = meta.cm.newInstance(const Symbol(''), const []);
+    for (final f in meta.fields) {
+      if (map.containsKey(f.name)) inst.setField(Symbol(f.name), map[f.name]);
+    }
+    return inst.reflectee;
+  }
+
+  /// Redis mirror: entity:<Type>:<id> = JSON of the fields. ttl from @Cached (0 = no TTL).
+  static Future<void> _mirror(EntityMeta meta, Object id, Map<String, Object?> vals) async {
+    final key = 'entity:${meta.typeName}:$id';
+    final json = jsonEncode(vals.map((k, v) => MapEntry(k, v is DateTime ? v.toIso8601String() : v)));
+    meta.ttl > 0 ? await Redis.setEx(key, json, meta.ttl) : await Redis.set(key, json);
+  }
+
+  static Future<Map<String, dynamic>?> _cacheGet(EntityMeta meta, Object id) async {
+    final raw = await Redis.get('entity:${meta.typeName}:$id');
+    if (raw == null) return null;
+    return (jsonDecode(raw) as Map).cast<String, dynamic>();
+  }
+
+  /// Simple distributed lock: SET key val NX EX 5, with a short retry.
+  /// Takes the lock with a random value; returns it (for release) or null after fail-open.
+  static Future<String?> lock(String key) async {
+    final value = Crypto.randomToken(16);
+    for (var i = 0; i < 50; i++) {
+      if (await Redis.setNxEx(key, value, 5)) return value;
+      await Future.delayed(const Duration(milliseconds: 40));
+    }
+    // after ~2 s we give up (fail-open, so the request does not hang forever)
+    return null;
+  }
+
+  /// Releases the lock only if it is still ours — after the TTL expires someone else holds it.
+  static Future<void> unlock(String key, String value) async => Redis.cmd([
+        'EVAL',
+        "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+        '1',
+        key,
+        value,
+      ]);
+}

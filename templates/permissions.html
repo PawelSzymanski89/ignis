@@ -1,0 +1,291 @@
+{% extends layout %}
+{% block heading %}{{ t('ignis.permissions.title') }}{% endblock %}
+{% block breadcrumb %}{{ t('ignis.permissions.breadcrumb') }}{% endblock %}
+
+{% block content %}
+{% from "_components.html" import card, badge, empty %}
+{% from "_list.html" import search, pager %}
+{% set on_accounts = listing and (listing.q or listing.page > 1 or accounts_active) %}
+{# Accordion content (package / account form) comes in a separate request on expand —
+   the page does not render accounts × packages × catalog at once. #}
+{% if single_package %}{% set p = single_package %}
+<div class="accordion-body">
+<form method="post">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="id" value="{{ p.id }}">
+
+  <div class="row g-2 mb-3">
+    <div class="col-md-4">
+      <label class="form-label">{{ t('ignis.permissions.name') }}</label>
+      <input class="form-control" name="name" value="{{ p.name }}"
+             {% if not can_edit %}disabled{% endif %}>
+    </div>
+    <div class="col-md-8">
+      <label class="form-label">{{ t('ignis.permissions.description') }}</label>
+      <input class="form-control" name="description" value="{{ p.description }}"
+             {% if not can_edit %}disabled{% endif %}>
+    </div>
+  </div>
+
+  <label class="form-label">{{ t('ignis.permissions.permissions') }}</label>
+  <div class="row">
+    {% for s in sections %}
+    <div class="col-md-4 mb-3">
+      <p class="fw-semibold fs-12 text-uppercase text-muted mb-2">{{ s.name }}</p>
+      {% for u in s.items %}
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" value="on"
+               id="{{ p.id }}-{{ u.key }}" name="perm_{{ u.key }}"
+               {% if p.checked[u.key] %}checked{% endif %}
+               {% if not can_edit %}disabled{% endif %}>
+        <label class="form-check-label fs-13" for="{{ p.id }}-{{ u.key }}"
+               title="{{ u.description }}">{{ u.key }}</label>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">{{ t('ignis.permissions.patterns') }}</label>
+    <input class="form-control" name="patterns" value="{{ p.patterns }}"
+           placeholder="content.*  media.*" {% if not can_edit %}disabled{% endif %}>
+    <span class="fs-12 text-muted">
+      {{ t('ignis.permissions.pattern_help')|replace('{section}', '<code>content.*</code>')|replace('{all}', '<code>*</code>') }}
+      {{ t('ignis.permissions.pattern_future') }}
+    </span>
+  </div>
+
+  {% if can_edit and not p.system %}
+  <button class="btn btn-primary btn-wave" name="triggerAction" value="package_save">
+    <i class="fe fe-save me-1"></i>{{ t('ignis.permissions.save_package') }}
+  </button>
+  <button class="btn btn-danger btn-wave" name="triggerAction" value="package_delete"
+          data-confirm="{{ t('ignis.permissions.delete_package_confirm')|replace('{name}', p.name) }}">
+    <i class="fe fe-trash-2 me-1"></i>{{ t('ignis.permissions.delete') }}
+  </button>
+  {% endif %}
+</form>
+</div>
+{% elif single_account %}{% set u = single_account %}
+<div class="accordion-body">
+<form method="post">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="user_login" value="{{ u.login }}">
+
+  <label class="form-label">{{ t('ignis.permissions.packages') }}</label>
+  <div class="row mb-3">
+    {% for p in packages %}
+    <div class="col-md-3">
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" role="switch" value="on"
+               id="{{ u.login }}-{{ p.id }}" name="pkg_{{ p.id }}"
+               {% if u.checked[p.id] %}checked{% endif %}
+               {% if not can_users or u.is_me %}disabled{% endif %}>
+        <label class="form-check-label" for="{{ u.login }}-{{ p.id }}">{{ p.name }}</label>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="row g-2 mb-3">
+    <div class="col-md-6">
+      <label class="form-label text-success">{{ t('ignis.permissions.extra') }}</label>
+      <input class="form-control" name="plus" value="{{ u.plus }}"
+             placeholder="media.upload  content.publish"
+             {% if not can_users or u.is_me %}disabled{% endif %}>
+      <span class="fs-12 text-muted">{{ t('ignis.permissions.extra_sub') }}</span>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label text-danger">{{ t('ignis.permissions.deny') }}</label>
+      <input class="form-control" name="minus" value="{{ u.minus }}"
+             placeholder="settings.edit"
+             {% if not can_users or u.is_me %}disabled{% endif %}>
+      <span class="fs-12 text-muted">
+        <strong>{{ t('ignis.permissions.deny_wins') }}</strong> {{ t('ignis.permissions.deny_wins_sub') }}
+      </span>
+    </div>
+  </div>
+
+  <div class="mb-3">
+    <p class="fs-12 text-muted mb-1">{{ t('ignis.permissions.effective')|replace('{n}', u.count ~ '') }}</p>
+    {% for e in u.effective %}{{ badge(e) }}{% endfor %}
+    {% if not u.effective %}<span class="text-muted fs-13">{{ t('ignis.permissions.no_access') }}</span>{% endif %}
+  </div>
+
+  {% if u.is_me %}
+  <p class="fs-12 text-muted mb-0">{{ t('ignis.permissions.own_note') }}</p>
+  {% elif can_users %}
+  <div class="row g-2 align-items-end">
+    <div class="col-md-4">
+      <label class="form-label">{{ t('ignis.permissions.new_password') }}</label>
+      <input class="form-control" type="password" name="new_password"
+             placeholder="{{ t('ignis.permissions.keep_empty') }}" autocomplete="new-password">
+    </div>
+    <div class="col-md-8">
+      <button class="btn btn-primary btn-wave" name="triggerAction" value="user_save">
+        <i class="fe fe-save me-1"></i>{{ t('ignis.permissions.save_account') }}
+      </button>
+      {% if u.totp %}
+      <button class="btn btn-light btn-wave" name="triggerAction" value="user_totp_disable"
+              data-confirm="{{ t('ignis.permissions.disable_totp_confirm')|replace('{login}', u.login) }}">
+        <i class="fe fe-smartphone me-1"></i>{{ t('ignis.permissions.lost_phone') }}
+      </button>
+      {% endif %}
+      <button class="btn btn-danger btn-wave" name="triggerAction" value="user_delete"
+              data-confirm="{{ t('ignis.permissions.delete_account_confirm')|replace('{login}', u.login) }}">
+        <i class="fe fe-trash-2 me-1"></i>{{ t('ignis.permissions.delete_account') }}
+      </button>
+    </div>
+  </div>
+  {% endif %}
+</form>
+</div>
+{% else %}
+
+<div class="card custom-card">
+  <div class="card-body">
+    <ul class="nav nav-tabs mb-3" role="tablist">
+      <li class="nav-item"><a class="nav-link{% if not on_accounts %} active{% endif %}" data-bs-toggle="tab" role="tab" href="#tab-packages">
+        <i class="fe fe-package me-1"></i>{{ t('ignis.permissions.packages') }} <span class="badge bg-primary-transparent ms-1">{{ packages|length }}</span></a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" role="tab" href="#tab-catalog">
+        <i class="fe fe-list me-1"></i>{{ t('ignis.permissions.catalog') }} <span class="badge bg-secondary-transparent ms-1">{{ catalog|length }}</span></a></li>
+      {% if can_accounts %}
+      <li class="nav-item"><a class="nav-link{% if on_accounts %} active{% endif %}" data-bs-toggle="tab" role="tab" href="#tab-accounts">
+        <i class="fe fe-users me-1"></i>{{ t('ignis.permissions.accounts') }} <span class="badge bg-success-transparent ms-1">{{ listing.total }}</span></a></li>
+      {% endif %}
+    </ul>
+
+    <div class="tab-content">
+
+      {# ─────────────────────────── PACKAGES ─────────────────────────── #}
+      <div class="tab-pane{% if not on_accounts %} show active{% endif %}" id="tab-packages" role="tabpanel">
+        {% if not can_edit %}
+        <div class="alert alert-warning">{{ t('ignis.permissions.read_only')|replace('{permission}', '<code>permissions.edit</code>') }}</div>
+        {% endif %}
+
+        <div class="accordion accordion-primary" id="accordion-packages">
+          {% for p in packages %}
+          <div class="accordion-item mb-2">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                      data-bs-target="#package-{{ p.id }}">
+                <span class="fw-semibold">{{ p.name }}</span>
+                <span class="badge bg-primary-transparent ms-2">{{ t('ignis.permissions.count')|replace('{n}', p.count ~ '') }}</span>
+                {% if p.system %}<span class="badge bg-danger-transparent ms-1">{{ t('ignis.permissions.system') }}</span>{% endif %}
+                <span class="text-muted fs-12 ms-2">{{ p.description }}</span>
+              </button>
+            </h2>
+            <div id="package-{{ p.id }}" class="accordion-collapse collapse" data-bs-parent="#accordion-packages"
+                 hx-get="{{ p.body }}" hx-trigger="show.bs.collapse once" hx-target="this" hx-swap="innerHTML">
+              <div class="accordion-body"><span class="text-muted fs-13">{{ t('ignis.permissions.loading') }}</span></div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        {% if can_edit %}
+        <div class="mt-3 pt-3 border-top">
+          <form method="post" class="row g-2 align-items-end">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="triggerAction" value="package_add">
+            <div class="col-md-3">
+              <label class="form-label">{{ t('ignis.permissions.new_package') }}</label>
+              <input class="form-control" name="name" placeholder="{{ t('ignis.permissions.package_placeholder') }}" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">{{ t('ignis.permissions.description') }}</label>
+              <input class="form-control" name="description" placeholder="{{ t('ignis.permissions.what_for') }}">
+            </div>
+            <div class="col-md-3">
+              <button class="btn btn-success btn-wave w-100"><i class="fe fe-plus me-1"></i>{{ t('ignis.permissions.add_package') }}</button>
+            </div>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+
+      {# ─────────────────────────── CATALOG ─────────────────────────── #}
+      <div class="tab-pane" id="tab-catalog" role="tabpanel">
+        <p class="text-muted fs-13">
+          {{ t('ignis.permissions.catalog_help')|replace('{file}', '<code>engine/seed.dart</code>') }}
+        </p>
+        <div class="table-responsive">
+          <table class="table table-hover text-nowrap">
+            <thead><tr><th>{{ t('ignis.permissions.section') }}</th><th>{{ t('ignis.permissions.key') }}</th><th>{{ t('ignis.permissions.description') }}</th><th>{{ t('ignis.permissions.in_packages') }}</th></tr></thead>
+            <tbody>
+            {% for k in catalog %}
+              <tr>
+                <td><span class="badge bg-secondary-transparent">{{ k.section }}</span></td>
+                <td><code>{{ k.key }}</code></td>
+                <td class="text-muted">{{ k.description }}</td>
+                <td>
+                  {% for p in packages %}{% if p.checked[k.key] %}{{ badge(p.name) }}{% endif %}{% endfor %}
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {# ─────────────────────────── ACCOUNTS ─────────────────────────── #}
+      {% if can_accounts %}
+      <div class="tab-pane{% if on_accounts %} show active{% endif %}" id="tab-accounts" role="tabpanel">
+        {% if not can_users %}
+        <div class="alert alert-warning">{{ t('ignis.permissions.read_only')|replace('{permission}', '<code>users.edit</code>') }}</div>
+        {% endif %}
+        <div class="mb-3">{{ search(listing, t('ignis.permissions.search_account'), placeholder='login', button=t('ignis.permissions.search')) }}</div>
+
+        <div class="accordion accordion-primary" id="accordion-accounts">
+          {% for u in users %}
+          <div class="accordion-item mb-2">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                      data-bs-target="#account-{{ u.no }}">
+                <span class="avatar avatar-sm avatar-rounded bg-primary-transparent me-2">{{ u.login[0]|upper }}</span>
+                <span class="fw-semibold">{{ u.login }}</span>
+                {% if u.totp %}<i class="fe fe-shield text-success ms-1"
+                  title="{{ t('ignis.permissions.totp_title') }}"></i>{% endif %}
+                {% if u.is_me %}<span class="badge bg-info-transparent ms-2">{{ t('ignis.permissions.is_me') }}</span>{% endif %}
+                <span class="badge bg-success-transparent ms-2">{{ t('ignis.permissions.count')|replace('{n}', u.count ~ '') }}</span>
+                <span class="text-muted fs-12 ms-2">{{ u.packages_text }}</span>
+              </button>
+            </h2>
+            <div id="account-{{ u.no }}" class="accordion-collapse collapse" data-bs-parent="#accordion-accounts"
+                 hx-get="{{ u.body }}" hx-trigger="show.bs.collapse once" hx-target="this" hx-swap="innerHTML">
+              <div class="accordion-body"><span class="text-muted fs-13">{{ t('ignis.permissions.loading') }}</span></div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {{ pager(listing, prev_text=t('ignis.list.prev'), next_text=t('ignis.list.next'), of=t('ignis.list.of'), rows=t('ignis.permissions.per_page'), apply=t('ignis.list.show')) }}
+
+        {% if can_users %}
+        <div class="mt-3 pt-3 border-top">
+          <form method="post" class="row g-2 align-items-end">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="triggerAction" value="user_add">
+            <div class="col-md-4">
+              <label class="form-label">{{ t('ignis.permissions.new_account') }}</label>
+              <input class="form-control" name="login" placeholder="login" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">{{ t('ignis.permissions.password') }}</label>
+              <input class="form-control" type="password" name="password"
+                     placeholder="{{ t('ignis.permissions.min_length') }}" minlength="10" required autocomplete="new-password">
+            </div>
+            <div class="col-md-4">
+              <button class="btn btn-success btn-wave w-100"><i class="fe fe-user-plus me-1"></i>{{ t('ignis.permissions.create_account') }}</button>
+            </div>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

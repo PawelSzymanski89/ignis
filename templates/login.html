@@ -1,0 +1,53 @@
+{% extends "_layout_bare.html" %}
+{% block content %}
+<div class="container">
+  <div class="row justify-content-center align-items-center" style="min-height:100vh">
+    <div class="col-md-8 col-lg-5 col-xl-4">
+      <div class="card custom-card">
+        <div class="card-body p-5">
+          <p class="h5 fw-semibold mb-2">{{ t('ignis.login.heading') }}</p>
+          <p class="mb-4 text-muted fw-normal fs-13">{{ t('ignis.login.lead') }}</p>
+
+          {% if error %}
+          <div class="alert alert-danger" role="alert">{{ error }}</div>
+          {% endif %}
+          {% if info %}
+          <div class="alert alert-info" role="alert">{{ info }}</div>
+          {% endif %}
+
+          <form method="post">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            {% if step2 %}
+            {# Second factor: the password is already checked, there is no session yet. #}
+            <input type="hidden" name="step2" value="{{ step2 }}">
+            <p class="fs-13 mb-3">{{ t('ignis.login.2fa_prompt')|replace('{login}', '<b>' ~ login_2fa ~ '</b>') }}</p>
+            <div class="mb-4">
+              <label for="login-code" class="form-label text-default">{{ t('ignis.login.code') }}</label>
+              <input type="text" class="form-control form-control-lg text-center mono" id="login-code"
+                     name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7"
+                     pattern="[0-9 ]{6,7}" autofocus required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-wave w-100">{{ t('ignis.login.confirm') }}</button>
+            <a class="btn btn-link btn-sm w-100 mt-2" href="/admin/login">{{ t('ignis.login.restart') }}</a>
+            {% else %}
+            <div class="mb-3">
+              <label for="login-username" class="form-label text-default">{{ t('ignis.login.username') }}</label>
+              <input type="text" class="form-control" id="login-username" name="username"
+                     value="{{ username }}" autocomplete="username" autofocus required>
+            </div>
+            <div class="mb-4">
+              <label for="login-password" class="form-label text-default">{{ t('ignis.login.password') }}</label>
+              <input type="password" class="form-control" id="login-password" name="password"
+                     autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-wave w-100">{{ t('ignis.login.submit') }}</button>
+            {% endif %}
+          </form>
+
+          {% if hint %}<p class="fs-12 text-muted mt-3 mb-0">{{ hint }}</p>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

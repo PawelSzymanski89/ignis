@@ -1,0 +1,55 @@
+{# ===========================================================================
+   Panel components — theme markup wrapped in macros.
+   Call with a body: {% call card('Title') %} ...content... {% endcall %}
+   ({{ caller() }} is the equivalent of <#nested> in FreeMarker).
+   ⚠️ Importing this file in a template with {% extends %} must happen INSIDE a block.
+   ⚠️ Parameters with a default value (color=, description=, type=, subtitle=) must be passed
+      BY NAME — this Jinja port does not accept them positionally and throws a bare TypeError.
+   =========================================================================== #}
+
+{# Card — the basic panel container (.card.custom-card) #}
+{% macro card(title, subtitle='', css_class='') %}
+<div class="card custom-card {{ css_class }}">
+  {% if title %}
+  <div class="card-header justify-content-between">
+    <div class="card-title">{{ title }}</div>
+    {% if subtitle %}<span class="text-muted fs-12">{{ subtitle }}</span>{% endif %}
+  </div>
+  {% endif %}
+  <div class="card-body">{{ caller() }}</div>
+</div>
+{% endmacro %}
+
+{# Stat tile (sales-card + text-fixed-white) #}
+{% macro tile(label, value, icon, color='primary', description='') %}
+<div class="col-xxl-3 col-lg-6 col-md-6 col-sm-12">
+  <div class="card custom-card overflow-hidden sales-card bg-{{ color }}-gradient">
+    <div class="px-3 pt-3 pb-2">
+      <h6 class="mb-3 fs-12 text-fixed-white">{{ label }}</h6>
+      <div class="pb-0 mt-0">
+        <div class="d-flex align-items-center">
+          <div>
+            <h4 class="fs-24 fw-bold mb-1 text-fixed-white">{{ value }}</h4>
+            <p class="mb-0 fs-12 text-fixed-white op-7">{{ description }}</p>
+          </div>
+          <span class="float-end my-auto ms-auto">
+            <i class="{{ icon }} fs-24 text-fixed-white op-5"></i>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+{# Permission badge. A pattern (with an asterisk) is highlighted, because it covers a whole section. #}
+{% macro badge(key, type='primary') %}
+<span class="badge bg-{{ type }}-transparent me-1 mb-1">{{ key }}</span>
+{% endmacro %}
+
+{# Empty state — when a list contains nothing (pattern from empty.html) #}
+{% macro empty(text) %}
+<div class="text-center p-4 text-muted">
+  <i class="fe fe-inbox fs-32 d-block mb-2 op-5"></i>{{ text }}
+</div>
+{% endmacro %}

@@ -1,0 +1,7 @@
+{# Data for the shell script after PageEngine.fieldError: field errors (translated) and the typed values.
+   Everything through autoescape — the script reads textContent, not innerHTML. Include it in the layout:
+   {% include '_form_errors.html' %} (needs t() in the model when the app has translations). #}
+{% if form %}<div id="form-errors" hidden data-action="{{ form.action }}">
+{% for b in form.errors %}<p data-field="{{ b.field }}">{{ t(b.key) if t is defined else b.key }}</p>
+{% endfor %}{% for w in form.values %}<textarea data-field="{{ w.field }}">{{ w.value }}</textarea>
+{% endfor %}</div>{% endif %}

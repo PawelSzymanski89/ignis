@@ -1,0 +1,9 @@
+# Dart
+.dart_tool/
+.packages
+build/
+# Sekrety / lokalne env (realne hasła NIE trafiają do repo)
+.env
+*.env
+# System
+.DS_Store

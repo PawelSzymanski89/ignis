@@ -1,0 +1,70 @@
+{% extends layout %}
+{% block heading %}{{ t('ignis.dashboard.title') }}{% endblock %}
+{% block breadcrumb %}{{ t('ignis.dashboard.breadcrumb') }}{% endblock %}
+
+{% block content %}
+{% from "_components.html" import card, tile, badge, empty %}
+
+<div class="row">
+  {{ tile(t('ignis.dashboard.users'), user_count, 'fe fe-users', color='primary', description=t('ignis.dashboard.users_sub')) }}
+  {{ tile(t('ignis.dashboard.packages'), package_count, 'fe fe-package', color='secondary', description=t('ignis.dashboard.packages_sub')) }}
+  {{ tile(t('ignis.dashboard.catalog'), permission_count, 'fe fe-shield', color='success', description=t('ignis.dashboard.catalog_sub')) }}
+  {{ tile(t('ignis.dashboard.mine'), my_count, 'fe fe-key', color='warning', description=t('ignis.dashboard.mine_sub')) }}
+</div>
+
+<div class="row">
+  {% if overview is defined %}
+  <div class="col-xl-7">
+    {% call card(t('ignis.dashboard.who_can'), subtitle=t('ignis.dashboard.who_can_sub')) %}
+      <div class="table-responsive">
+        <table class="table table-hover text-nowrap">
+          <thead><tr><th>{{ t('ignis.dashboard.account') }}</th><th>{{ t('ignis.dashboard.packages_col') }}</th><th class="text-end">{{ t('ignis.dashboard.permissions_col') }}</th></tr></thead>
+          <tbody>
+          {% for u in overview %}
+            <tr>
+              <td><span class="avatar avatar-sm avatar-rounded bg-primary-transparent me-2">{{ u.login[0]|upper }}</span>{{ u.login }}</td>
+              <td>{% if u.packages %}{{ u.packages }}{% else %}<span class="text-muted">{{ t('ignis.dashboard.none') }}</span>{% endif %}</td>
+              <td class="text-end"><span class="badge bg-primary-transparent">{{ u.count }}</span></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if overview_more > 0 %}<p class="fs-12 text-muted mb-0">{{ t('ignis.dashboard.more_accounts')|replace('{n}', overview_more ~ '') }}</p>{% endif %}
+      <a href="/admin/permissions" class="btn btn-primary btn-wave btn-sm mt-2">{{ t('ignis.dashboard.manage') }}</a>
+    {% endcall %}
+  </div>
+  {% endif %}
+
+  <div class="col-xl-5">
+    {% call card(t('ignis.dashboard.system_packages')) %}
+      <div class="list-group list-group-flush">
+        {% for p in packages %}
+        <div class="list-group-item px-0">
+          <div class="d-flex align-items-center">
+            <div class="flex-grow-1">
+              <h6 class="mb-0 fw-semibold">{{ p.name }}</h6>
+              <span class="fs-12 text-muted">{{ p.description }}</span>
+            </div>
+            <span class="badge bg-secondary-transparent">{{ p.permissions|length }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    {% endcall %}
+
+    {% call card(t('ignis.dashboard.your_access'), subtitle=login) %}
+      {% if my_deny %}
+        <p class="fs-12 text-muted mb-1">{{ t('ignis.dashboard.denials') }}</p>
+        {% for d in my_deny %}{{ badge(d, type='danger') }}{% endfor %}
+        <hr class="my-2">
+      {% endif %}
+      <p class="fs-12 text-muted mb-1">{{ t('ignis.dashboard.patterns') }}</p>
+      {% for w in my_patterns %}{{ badge(w, type='success') }}{% endfor %}
+      <hr class="my-2">
+      <p class="fs-12 text-muted mb-1">{{ t('ignis.dashboard.expanded')|replace('{n}', my_count ~ '') }}</p>
+      {% for u in my_permissions %}{{ badge(u.key) }}{% endfor %}
+    {% endcall %}
+  </div>
+</div>
+{% endblock %}

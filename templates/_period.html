@@ -1,0 +1,22 @@
+{# Report period (lib/engine/period.dart): presets and one button with a panel: custom day range (GET form),
+   comparison with the previous period (a form field; for a preset also a toggle link). A +- sign on the button = comparison on. Labels come from the page (named parameters). Import inside a block. #}
+{% macro period(o, label='Date range', presets={}, custom='Custom', from_text='From', to_text='To', apply='Apply', compare='Compare to previous period', error='') %}
+<div class="period" role="group" aria-label="{{ label }}">
+  <div class="seg">
+    {% for p in o.presets %}<a class="btn btn-sm {{ 'btn-outline' if p.active else 'btn-ghost' }}" href="{{ p.href }}"{% if p.active %} aria-current="true"{% endif %}>{{ presets[p.k] or p.k }}</a>{% endfor %}
+  </div>
+  <details class="period-custom"{% if o.error %} open{% endif %}>
+    <summary class="btn btn-sm {{ 'btn-outline' if o.custom or o.compare else 'btn-ghost' }}"{% if o.custom %} aria-current="true"{% endif %}>{% if o.custom %}{{ o.label }}{% else %}{{ custom }}{% endif %}{% if o.compare %} <span class="period-sign" title="{{ compare }}">±</span>{% endif %}</summary>
+    <form class="period-panel" method="get" action="{{ o.action }}">
+      {% for p in o.fields %}<input type="hidden" name="{{ p.k }}" value="{{ p.v }}">{% endfor %}
+      <input type="hidden" name="range" value="custom">
+      {% if o.error and error %}<p class="period-error" role="alert">{{ error }}</p>{% endif %}
+      <label>{{ from_text }} <input class="input" type="date" name="from" value="{{ o.date_from }}" max="{{ o.max }}" required></label>
+      <label>{{ to_text }} <input class="input" type="date" name="to" value="{{ o.date_to }}" max="{{ o.max }}" required></label>
+      <label class="period-compare-field"><input type="checkbox" name="compare" value="1"{% if o.compare %} checked{% endif %}> {{ compare }}</label>
+      <button class="btn btn-primary btn-sm" type="submit">{{ apply }}</button>
+      {% if not o.custom %}<a class="period-compare" href="{{ o.toggle_compare }}" role="switch" aria-checked="{{ 'true' if o.compare else 'false' }}">{{ compare }}: {{ presets[o.range] or o.range }}</a>{% endif %}
+    </form>
+  </details>
+</div>
+{% endmacro %}

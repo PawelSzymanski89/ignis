@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="{{ language }}" dir="ltr" data-theme-mode="light" data-header-styles="light" data-menu-styles="light"
+      data-page-style="modern" data-width="fullwidth" loader="disable">
+<head>
+
+    <!-- Meta Data -->
+    <meta charset="UTF-8">
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>{% if page_title %}{{ page_title }} — {% endif %}{{ brand }}</title>
+    <meta name="robots" content="noindex">
+    {# CSP: all scripts from files (/assets/…), no on*= and no javascript: — see SECURITY.md.
+       Inline styles stay (style= attributes in theme templates). Meta, not a header: it covers every
+       page on this layout, app pages included; the proxy may add a stricter header. #}
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+    
+    <!-- Favicon -->
+    <link rel="icon" href="/assets/brand/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/assets/brand/icon-180.png">
+
+    
+    {# Theme (light/dark) before the first paint — the only script without defer. #}
+    <script src="/assets/ignis/theme.js"></script>
+    <script src="/assets/js/main.js" defer></script>
+    
+    <!-- Bootstrap Css -->
+    <link id="style" href="/assets/libs/bootstrap/css/bootstrap.min.css" rel="stylesheet" >
+
+    <!-- Style Css -->
+    <link href="/assets/css/styles.min.css" rel="stylesheet" >
+
+    <!-- Icons Css -->
+    <link href="/assets/css/icons.css" rel="stylesheet" >
+
+    <!-- Node Waves Css -->
+    <link href="/assets/libs/node-waves/waves.min.css" rel="stylesheet" > 
+
+    <!-- Simplebar Css -->
+    <link href="/assets/libs/simplebar/simplebar.min.css" rel="stylesheet" >
+    
+
+</head>
+<body>  <!-- background from the theme: the error page and sign-in look the same in light and dark mode -->
+{% block content %}{% endblock %}
+    <!-- Bootstrap JS (bundle zawiera Popper) -->
+    <script src="/assets/libs/bootstrap/js/bootstrap.bundle.min.js" defer></script>
+
+    <!-- Node Waves JS-->
+    <script src="/assets/libs/node-waves/waves.min.js" defer></script>
+    <script src="/assets/ignis/forms.js" defer></script>
+
+</body>
+</html>

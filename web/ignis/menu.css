@@ -1,0 +1,28 @@
+/* Row action menu (menu.js): <details class="row-menu"><summary>⋯</summary><div class="row-menu-list">…</div></details>. */
+.row-menu { position: relative; display: inline-block; }
+.row-menu > summary {
+  list-style: none; display: inline-flex; align-items: center; justify-content: center;
+  min-width: 36px; min-height: 36px; border-radius: 8px; cursor: pointer; font-size: 18px; line-height: 1;
+  color: var(--color-muted-foreground, #555); border: 1px solid transparent;
+}
+.row-menu > summary::-webkit-details-marker { display: none; }
+.row-menu > summary:hover, .row-menu[open] > summary { background: var(--color-muted, #f2f2f2); border-color: var(--color-border, #ddd); }
+.row-menu > summary:focus-visible { outline: 2px solid var(--color-ring, #2563eb); outline-offset: 2px; }
+.row-menu-list {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 220px; padding: 6px;
+  background: var(--color-card, #fff); border: 1px solid var(--color-border, #ddd); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .12); display: grid; gap: 2px; text-align: left; white-space: normal;
+}
+.row-menu-list form { display: grid; gap: 2px; margin: 0; }
+.row-menu-list button, .row-menu-list a {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent; font: inherit; color: inherit;
+  padding: 8px 10px; border-radius: 6px; cursor: pointer; text-decoration: none; min-height: 36px;
+}
+.row-menu-list button:hover, .row-menu-list a:hover, .row-menu-list button:focus-visible, .row-menu-list a:focus-visible {
+  background: var(--color-muted, #f2f2f2); outline: none;
+}
+.row-menu-list .danger { color: var(--color-destructive-text, #b91c1c); }
+.row-menu-list hr { border: 0; border-top: 1px solid var(--color-border, #ddd); margin: 4px 0; }
+.row-menu-list { max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; }
+.row-menu-list .row-menu-field { display: grid; gap: 6px; padding: 4px 6px; }
+.row-menu-list .row-menu-field select { width: 100%; min-width: 0; }

@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="{{ language }}" dir="ltr" data-nav-layout="vertical" data-theme-mode="light" data-header-styles="light"
+      data-menu-styles="light" data-toggled="close" data-page-style="modern" data-width="fullwidth" loader="disable">
+<head>
+
+    <!-- Meta Data -->
+    <meta charset="UTF-8">
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>{% if page_title %}{{ page_title }} — {% endif %}{{ brand }}</title>
+    <meta name="robots" content="noindex">
+    {# CSP: all scripts from files (/assets/…), no on*= and no javascript: — see SECURITY.md.
+       Inline styles stay (style= attributes in theme templates). Meta, not a header: it covers every
+       page on this layout, app pages included; the proxy may add a stricter header. #}
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+    
+    <!-- Favicon -->
+    <link rel="icon" href="/assets/brand/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/assets/brand/icon-180.png">
+
+
+    {# Theme (light/dark) before the first paint — the only script without defer. #}
+    <script src="/assets/ignis/theme.js"></script>
+    {# htmx without page copies in localStorage: a panel snapshot (account lists, CSRF, TOTP secret) would survive
+       sign-out and be readable by front scripts on the same origin. Back fetches the page from the server. #}
+    <meta name="htmx-config" content='{"historyCacheSize":0,"refreshOnHistoryMiss":true}'>
+    <script src="/assets/libs/htmx/htmx.min.js" defer></script>
+    <script src="/assets/js/main.js" defer></script>
+    
+    <!-- Bootstrap Css -->
+    <link id="style" href="/assets/libs/bootstrap/css/bootstrap.min.css" rel="stylesheet" >
+
+    <!-- Style Css -->
+    <link href="/assets/css/styles.min.css" rel="stylesheet" >
+
+    <!-- Icons Css -->
+    <link href="/assets/css/icons.css" rel="stylesheet" >
+
+    <!-- Node Waves Css -->
+    <link href="/assets/libs/node-waves/waves.min.css" rel="stylesheet" > 
+
+    <!-- Simplebar Css -->
+    <link href="/assets/libs/simplebar/simplebar.min.css" rel="stylesheet" >
+
+    <!-- Choices Css -->
+
+<style>
+  /* Progress bar for content loading — htmx itself toggles the .htmx-request class */
+  #loading-bar{position:fixed;top:0;left:0;height:3px;width:0;z-index:9999;
+    background:rgb(var(--primary-rgb));opacity:0;transition:width .25s ease,opacity .2s}
+  #loading-bar.htmx-request{width:85%;opacity:1;transition:width 1.2s ease}
+  /* NOTE: the space after the brace is required — "{#" is the start of a Jinja
+     comment, which swallows everything up to "#}". Without it the rest of the layout disappears
+     together with </head> and <body>, and the panel renders as an empty page. */
+  @media (prefers-reduced-motion: reduce) { #loading-bar { transition: none } }
+</style>
+</head>
+<body data-brand="{{ brand }}">
+{# Without the theme style configurator (offcanvas + custom-switcher.min.js).
+     custom.js went with it — of its 497 lines the panel used only the wave effect,
+     and in return it required 16 dead elements (switcher inputs, color picker containers),
+     a loader and a checkOptions() function. Replaced by the script at the bottom of this file. #}
+<div id="loading-bar" class="htmx-indicator"></div>
+<div class="page">
+<header class="app-header">
+
+            <!-- Start::main-header-container -->
+            <div class="main-header-container container-fluid">
+
+                <!-- Start::header-content-left -->
+                <div class="header-content-left">
+
+                    <!-- Start::header-element -->
+                    <div class="header-element">
+                        <div class="horizontal-logo">
+                            <a href="/admin" class="header-logo">
+                                <img src="/assets/brand/logo.svg" alt="{{ product }}" class="desktop-logo">
+                                <img src="/assets/brand/mark.svg" alt="{{ product }}" class="toggle-logo">
+                                <img src="/assets/brand/logo-white.svg" alt="{{ product }}" class="desktop-white">
+                                <img src="/assets/brand/mark-white.svg" alt="{{ product }}" class="toggle-white">
+                            </a>
+                        </div>
+                    </div>
+                    <!-- End::header-element -->
+
+                    <!-- Start::header-element -->
+                    <div class="header-element">
+                        <!-- Start::header-link -->
+                        <a aria-label="Hide Sidebar" class="sidemenu-toggle header-link animated-arrow hor-toggle horizontal-navtoggle" data-bs-toggle="sidebar" href="#">
+                            <i class="header-icon fe fe-align-left"></i>
+                        </a>
+                    </div>
+
+                    <!-- Start::header-element -->
+                    <div class="header-element header-theme-mode">
+                        <!-- Start::header-link|layout-setting -->
+                        <a href="#" class="header-link layout-setting">
+                            <span class="light-layout">
+                                <!-- Start::header-link-icon -->
+                                <svg xmlns="http://www.w3.org/2000/svg" class="header-link-icon" height="24" viewBox="0 -960 960 960" width="24"><path d="M480-120q-150 0-255-105T120-480q0-150 105-255t255-105q14 0 27.5 1t26.5 3q-41 29-65.5 75.5T444-660q0 90 63 153t153 63q55 0 101-24.5t75-65.5q2 13 3 26.5t1 27.5q0 150-105 255T480-120Zm0-80q88 0 158-48.5T740-375q-20 5-40 8t-40 3q-123 0-209.5-86.5T364-660q0-20 3-40t8-40q-78 32-126.5 102T200-480q0 116 82 198t198 82Zm-10-270Z"/></svg>
+                                <!-- End::header-link-icon -->
+                            </span>
+                            <span class="dark-layout">
+                                <!-- Start::header-link-icon -->
+                                <svg xmlns="http://www.w3.org/2000/svg" class="header-link-icon" fill="currentColor" height="24" viewBox="0 -960 960 960" width="24"><path d="M480-360q50 0 85-35t35-85q0-50-35-85t-85-35q-50 0-85 35t-35 85q0 50 35 85t85 35Zm0 80q-83 0-141.5-58.5T280-480q0-83 58.5-141.5T480-680q83 0 141.5 58.5T680-480q0 83-58.5 141.5T480-280ZM200-440H40v-80h160v80Zm720 0H760v-80h160v80ZM440-760v-160h80v160h-80Zm0 720v-160h80v160h-80ZM256-650l-101-97 57-59 96 100-52 56Zm492 496-97-101 53-55 101 97-57 59Zm-98-550 97-101 59 57-100 96-56-52ZM154-212l101-97 55 53-97 101-59-57Zm326-268Z"/></svg>
+                                <!-- End::header-link-icon -->
+                            </span>
+                        </a>
+                        <!-- End::header-link|layout-setting -->
+                    </div>
+                    <!-- End::header-element -->
+
+                    {% block bell %}{% endblock %}
+                    <!-- Start::header-element -->
+                    <div class="header-element header-fullscreen">
+                        <!-- Start::header-link -->
+                        <a href="#" class="header-link">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="full-screen-open full-screen-icon header-link-icon" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="full-screen-close full-screen-icon header-link-icon d-none" fill="currentColor" height="24" viewBox="0 -960 960 960" width="24"><path d="M320-200v-120H200v-80h200v200h-80Zm240 0v-200h200v80H640v120h-80ZM200-560v-80h120v-120h80v200H200Zm360 0v-200h80v120h120v80H560Z"/></svg>
+                        </a>
+                        <!-- End::header-link -->
+                    </div>
+                    <!-- End::header-element -->
+
+                    <!-- Start::header-element -->
+                    <div class="header-element headerProfile-dropdown">
+                        <a href="#" class="header-link dropdown-toggle" id="mainHeaderProfile"
+                           data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                            {# An initial instead of a demo photo — we have no avatars, and a placeholder with a stranger's
+                               face in an admin panel looks like an unfinished installation. #}
+                            <span class="avatar avatar-sm avatar-rounded bg-primary text-fixed-white fw-semibold">
+                                {{ login[0]|upper }}
+                            </span>
+                        </a>
+                        <ul class="main-header-dropdown dropdown-menu pt-0 header-profile-dropdown dropdown-menu-end main-profile-menu"
+                            aria-labelledby="mainHeaderProfile">
+                            <li>
+                                <div class="main-header-profile bg-primary menu-header-content text-fixed-white">
+                                    <div class="my-auto">
+                                        <h6 class="mb-0 lh-1 text-fixed-white">{{ login }}</h6>
+                                        <span class="fs-11 op-7 lh-1">{{ role }}</span>
+                                    </div>
+                                </div>
+                            </li>
+                            <li><a class="dropdown-item d-flex" href="/admin/account">
+                                <i class="fe fe-user fs-16 me-2 op-7"></i>{{ t('ignis.nav.account') }}</a></li>
+                            <li><a class="dropdown-item d-flex" href="/admin/permissions">
+                                <i class="fe fe-shield fs-16 me-2 op-7"></i>{{ t('ignis.nav.my_permissions') }}</a></li>
+                            <li><a class="dropdown-item d-flex border-block-end" href="/admin/settings">
+                                <i class="fe fe-settings fs-16 me-2 op-7"></i>{{ t('ignis.nav.settings') }}</a></li>
+                            <li><form method="post" action="/admin/logout" class="m-0">
+                                <input type="hidden" name="csrf" value="{{ csrf }}">
+                                <button type="submit" class="dropdown-item d-flex">
+                                <i class="fe fe-log-out fs-16 me-2 op-7"></i>{{ t('ignis.nav.logout') }}</button></form></li>
+                        </ul>
+                    </div>  
+                    <!-- End::header-element -->
+
+                    <!-- Start::header-element -->
+                    <div class="header-element">
+                    </div>
+                    <!-- End::header-element -->
+
+                </div>
+                <!-- End::header-content-right -->
+
+            </div>
+            <!-- End::main-header-container -->
+
+        </header>
+<aside class="app-sidebar sticky" id="sidebar">
+
+            <!-- Start::main-sidebar-header -->
+            <div class="main-sidebar-header">
+                <a href="/admin" class="header-logo">
+                    <img src="/assets/brand/logo.svg" alt="{{ product }}" class="desktop-logo">
+                    <img src="/assets/brand/mark.svg" alt="{{ product }}" class="toggle-logo">
+                    <img src="/assets/brand/logo-white.svg" alt="{{ product }}" class="desktop-white">
+                    <img src="/assets/brand/mark-white.svg" alt="{{ product }}" class="toggle-white">
+                </a>
+            </div>
+            <!-- End::main-sidebar-header -->
+
+            <!-- Start::main-sidebar -->
+            <div class="main-sidebar" id="sidebar-scroll">
+
+                <!-- Start::nav -->
+                <nav class="main-menu-container nav nav-pills flex-column sub-open">
+                    <div class="slide-left" id="slide-left">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="#7b8191" width="24" height="24" viewBox="0 0 24 24"> <path d="M13.293 6.293 7.586 12l5.707 5.707 1.414-1.414L10.414 12l4.293-4.293z"></path> </svg>
+                    </div>
+                    <ul class="main-menu">
+                        {% for s in menu_sections %}
+                        <li class="slide__category"><span class="category-name">
+                            {% if s.name %}{{ s.name }}{% else %}{{ t('ignis.nav.panel') }}{% endif %}</span></li>
+                        {% for m in s.items %}
+                        <li class="slide">
+                            <a href="{{ m.route }}" class="side-menu__item{% if m.route == current %} active{% endif %}"
+                               hx-get="{{ m.route }}" hx-target="#content" hx-swap="innerHTML"
+                               hx-push-url="true" hx-indicator="#loading-bar">
+                                <i class="{{ m.icon }} side-menu__icon"></i>
+                                <span class="side-menu__label">{{ m.label }}</span>
+                            </a>
+                        </li>
+                        {% endfor %}
+                        {% endfor %}
+                    </ul>
+                    <div class="slide-right" id="slide-right"><svg xmlns="http://www.w3.org/2000/svg" fill="#7b8191" width="24" height="24" viewBox="0 0 24 24"> <path d="M10.707 17.707 16.414 12l-5.707-5.707-1.414 1.414L13.586 12l-4.293 4.293z"></path> </svg></div>
+                </nav>
+                <!-- End::nav -->
+
+            </div>
+            <!-- End::main-sidebar -->
+
+        </aside>
+    <div class="main-content app-content">
+        <div class="container-fluid" id="content">
+            <div class="d-md-flex d-block align-items-center justify-content-between my-4 page-header-breadcrumb">
+                <h1 class="page-title fw-semibold fs-18 mb-0">{% block heading %}{% endblock %}</h1>
+                <div class="ms-md-1 ms-0">
+                    <nav><ol class="breadcrumb mb-0">
+                        <li class="breadcrumb-item"><a href="/">{{ t('ignis.nav.panel') }}</a></li>
+                        <li class="breadcrumb-item active" aria-current="page">{% block breadcrumb %}{% endblock %}</li>
+                    </ol></nav>
+                </div>
+            </div>
+            {% if message %}
+            <div class="alert alert-{{ message_type }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endif %}
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+    <footer class="footer mt-auto py-3 bg-white text-center">
+        <div class="container"><span class="text-muted">{{ footer }}</span>
+            <span class="text-muted fs-11 ms-2" title="{{ t('ignis.node.title') }}">
+                <i class="fe fe-server me-1"></i>{{ node }}</span></div>
+    </footer>
+</div>
+
+        <!-- Footer End -->
+
+    
+    <!-- Scroll To Top -->
+    <div class="scrollToTop">
+        <span class="arrow"><i class="las la-angle-double-up"></i></span>
+    </div>
+    <div id="responsive-overlay"></div>
+    <!-- Scroll To Top -->
+
+    <!-- Bootstrap JS (bundle zawiera Popper) -->
+    <script src="/assets/libs/bootstrap/js/bootstrap.bundle.min.js" defer></script>
+
+    <!-- Defaultmenu JS -->
+    <script src="/assets/js/defaultmenu.min.js" defer></script>
+
+    <!-- Node Waves JS-->
+    <script src="/assets/libs/node-waves/waves.min.js" defer></script>
+
+    <!-- Sticky JS -->
+    <script src="/assets/js/sticky.js" defer></script>
+
+    <!-- Simplebar JS -->
+    <script src="/assets/libs/simplebar/simplebar.min.js" defer></script>
+    <script src="/assets/js/simplebar.js" defer></script>
+
+    <!-- Color Picker JS -->
+
+    
+    <!-- Apex Charts JS -->
+    
+    <!-- JSVector Maps JS -->
+    
+    <!-- JSVector Maps MapsJS -->
+
+    <!-- Chartjs Chart JS -->
+    
+    
+    <!-- Custom-Switcher JS -->
+    <!-- Custom JS -->
+
+
+{# Panel scripts in files — CSP script-src 'self' without 'unsafe-inline'. #}
+<script src="/assets/ignis/forms.js" defer></script>
+<script src="/assets/ignis/panel.js" defer></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

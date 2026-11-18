@@ -1,0 +1,55 @@
+{# Macros for the Listing model (lib/engine/list.dart). Usage:
+   {% from "_list.html" import sort_th, pager, search, no_results %} — import inside a block.
+   Pass parameters with a default value BY NAME (jinja-dart: extra positional ones = TypeError). #}
+
+{# Sortable column header: link + aria-sort; an arrow at the active key. #}
+{% macro sort_th(l, key, label, css_class='') %}
+<th class="{{ css_class }}"{% if l.sort == key %} aria-sort="{{ 'descending' if l.dir == 'desc' else 'ascending' }}"{% endif %}>
+  <a class="sort{% if l.sort == key %} aktywny{% endif %}" href="{{ l.sort_links[key] }}">{{ label }}{% if l.sort == key %} <span aria-hidden="true">{{ '↓' if l.dir == 'desc' else '↑' }}</span>{% endif %}</a>
+</th>
+{% endmacro %}
+
+{# Search form (GET): keeps the other parameters and the sort, goes back to page 1. #}
+{% macro search(l, label, placeholder='', button='Search') %}
+<form class="list-search" method="get" action="{{ l.action }}" role="search">
+  {% for u in l.hidden %}<input type="hidden" name="{{ u.k }}" value="{{ u.v }}">{% endfor %}
+  <label class="sr-only" for="list-q">{{ label }}</label>
+  <input class="input" type="search" id="list-q" name="q" value="{{ l.q }}" placeholder="{{ placeholder }}">
+  <button class="btn btn-outline btn-sm" type="submit">{{ button }}</button>
+</form>
+{% endmacro %}
+
+{# Pager: "from–to of total" + previous/next; nothing when there is one page. #}
+{% macro pager(l, prev_text='Previous', next_text='Next', of='of', rows='Rows per page', apply='Show') %}
+{% if l and (l.pages > 1 or l.per_page_choice) %}
+<nav class="pager" aria-label="{{ l.page }} / {{ l.pages }}">
+  <span class="pager-info">{{ l.first }}–{{ l.last }} {{ of }} {{ l.total }}</span>
+  {% if l.per_page_choice %}<form class="pager-size" method="get" action="{{ l.action }}">
+    {% for u in l.hidden_per_page %}<input type="hidden" name="{{ u.k }}" value="{{ u.v }}">{% endfor %}
+    <label for="pager-size">{{ rows }}</label>
+    <select class="select" id="pager-size" name="per_page" data-submit>{% for r in l.sizes %}<option value="{{ r.n }}"{% if r.selected %} selected{% endif %}>{{ r.n }}</option>{% endfor %}</select>
+    <noscript><button class="btn btn-outline btn-sm" type="submit">{{ apply }}</button></noscript>
+  </form>{% endif %}
+  {% if l.prev_url %}<a class="btn btn-outline btn-sm" rel="prev" href="{{ l.prev_url }}">{{ prev_text }}</a>{% endif %}
+  {% if l.next_url %}<a class="btn btn-outline btn-sm" rel="next" href="{{ l.next_url }}">{{ next_text }}</a>{% endif %}
+</nav>
+{% endif %}
+{% endmacro %}
+
+{# Empty search/filter result: "No results for "phrase"" (or [title] without a phrase) + "Clear filters".
+   [quotes] — the pair of characters around the phrase (pl: „”, en: “”).
+   When the list is not filtered it draws nothing — the page shows its own empty state. #}
+{% macro no_results(l, for_text='No results for', title='Nothing matches the filters', description='', clear='Clear filters', quotes='“”') %}
+{% if l.filtered %}
+<div class="empty list-empty" role="status">
+  <h3>{% if l.q %}{{ for_text }} {{ quotes[0] }}{{ l.q }}{{ quotes[1] }}{% else %}{{ title }}{% endif %}</h3>
+  {% if description %}<p>{{ description }}</p>{% endif %}
+  <p><a class="btn btn-outline btn-sm" href="{{ l.clear }}">{{ clear }}</a></p>
+</div>
+{% endif %}
+{% endmacro %}
+
+{# CSV export of the view (the same filter and sort, all pages); nothing for an empty result. The page handles `l.csv` in insertData. #}
+{% macro export(l, label='Export CSV') %}
+{% if l.total %}<a class="btn btn-outline btn-sm list-csv" href="{{ l.csv }}" download>{{ label }}</a>{% endif %}
+{% endmacro %}

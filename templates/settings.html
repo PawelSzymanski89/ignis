@@ -1,0 +1,140 @@
+{% extends layout %}
+{% block heading %}{{ t('ignis.settings.title') }}{% endblock %}
+
+{% block scripts %}
+<style>
+  .file-drop { cursor: pointer; border-style: dashed !important; transition: background .15s, border-color .15s; }
+  .file-drop:hover, .file-drop.over { background: rgba(var(--primary-rgb), .08); border-color: rgb(var(--primary-rgb)) !important; }
+</style>
+{% endblock %}
+{% block breadcrumb %}{{ t('ignis.settings.breadcrumb') }}{% endblock %}
+
+{% block content %}
+{% from "_components.html" import card %}
+
+{% if not can_edit %}
+<div class="alert alert-warning" role="alert">
+  <i class="fe fe-eye me-2"></i>{{ t('ignis.settings.read_only')|replace('{permission}', '<code>settings.edit</code>') }}
+</div>
+{% endif %}
+
+<div class="card custom-card">
+  <div class="card-body">
+    <ul class="nav nav-tabs mb-4" role="tablist">
+      {% for s in sections %}
+      <li class="nav-item">
+        <a class="nav-link{% if s.active %} active{% endif %}" data-bs-toggle="tab"
+           role="tab" href="#sekcja-{{ s.id }}">
+          <i class="{{ s.icon }} me-1"></i>{{ s.name }}
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+
+    <div class="tab-content">
+      {% for s in sections %}
+      <div class="tab-pane{% if s.active %} show active{% endif %}" id="sekcja-{{ s.id }}" role="tabpanel">
+        <p class="text-muted fs-13 mb-4">{{ s.description }}</p>
+
+        <form method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="triggerAction" value="save">
+          <input type="hidden" name="section" value="{{ s.id }}">
+
+          {% for p in s.fields %}
+          {% if p.heading %}
+          <p class="fw-semibold text-uppercase fs-11 text-muted mt-4 mb-2 pb-1 border-bottom">{{ p.heading }}</p>
+          {% endif %}
+          <div class="row mb-3 align-items-center">
+
+            {% if p.type == 'toggle' %}
+            <div class="col-sm-4"></div>
+            <div class="col-sm-8">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" value="on"
+                       id="p_{{ p.key }}" name="p_{{ p.key }}"
+                       {% if p.enabled %}checked{% endif %}
+                       {% if not can_edit %}disabled{% endif %}>
+                <label class="form-check-label" for="p_{{ p.key }}">{{ p.label }}</label>
+              </div>
+              {% if p.hint_text %}<span class="fs-12 text-muted d-block ms-4">{{ p.hint_text }}</span>{% endif %}
+            </div>
+
+            {% else %}
+            <label class="col-sm-4 col-form-label" for="p_{{ p.key }}">
+              {{ p.label }}{% if p.required %} <span class="text-danger">*</span>{% endif %}
+              {% if p.secret %}
+                {% if p.is_set %}
+                  <span class="badge bg-success-transparent ms-1"><i class="fe fe-lock me-1"></i>{{ t('ignis.settings.is_set') }}</span>
+                {% else %}
+                  <span class="badge bg-danger-transparent ms-1">{{ t('ignis.settings.missing') }}</span>
+                {% endif %}
+              {% endif %}
+            </label>
+            <div class="col-sm-8">
+              {% if p.type == 'file' %}
+                <div class="file-drop border rounded p-4 text-center" data-field="p_{{ p.key }}" data-suffix="{{ t('ignis.settings.save_to_upload') }}">
+                  <i class="fe fe-upload-cloud fs-32 text-muted d-block mb-2"></i>
+                  <p class="mb-1 fw-semibold">{{ t('ignis.settings.drop') }}</p>
+                  <p class="fs-12 text-muted mb-0 file-name">
+                    {% if p.is_set %}{{ t('ignis.settings.creds_saved') }}
+                    {% else %}{{ t('ignis.settings.no_file') }}{% endif %}
+                  </p>
+                  <input type="file" name="p_{{ p.key }}" accept="application/json,.json"
+                         class="d-none" {% if not can_edit %}disabled{% endif %}>
+                </div>
+                {% if p.is_set and can_edit %}
+                {# the key on the button, not in a hidden field: hidden fields of all files would go together and the last would win #}
+                <button type="submit" name="triggerAction" value="file_delete" formaction="?field={{ p.key }}"
+                        class="btn btn-sm btn-danger-light btn-wave mt-2"
+                        data-confirm="{{ t('ignis.settings.delete_creds_confirm') }}">
+                  <i class="fe fe-trash-2 me-1"></i>{{ t('ignis.settings.delete_creds') }}
+                </button>
+                {% endif %}
+
+              {% elif p.type == 'choice' %}
+                <select class="form-select" id="p_{{ p.key }}" name="p_{{ p.key }}"
+                        {% if not can_edit %}disabled{% endif %}>
+                  {% for o in p.options %}
+                  <option value="{{ o }}"{% if o == p.value %} selected{% endif %}>{{ o }}</option>
+                  {% endfor %}
+                </select>
+              {% elif p.type == 'password' %}
+                <input type="password" class="form-control" id="p_{{ p.key }}" name="p_{{ p.key }}"
+                       autocomplete="new-password"
+                       placeholder="{% if p.is_set %}{{ t('ignis.settings.keep_empty') }}{% else %}{{ t('ignis.settings.not_set') }}{% endif %}"
+                       {% if not can_edit %}disabled{% endif %}>
+              {% elif p.type == 'multiline' %}
+                <textarea class="form-control" rows="4" id="p_{{ p.key }}" name="p_{{ p.key }}"
+                          {% if not can_edit %}disabled{% endif %}>{{ p.value }}</textarea>
+              {% elif p.type == 'number' %}
+                <input type="number" step="0.01" min="0" class="form-control"
+                       id="p_{{ p.key }}" name="p_{{ p.key }}" value="{{ p.value }}"
+                       {% if not can_edit %}disabled{% endif %}>
+              {% else %}
+                <input type="text" class="form-control" id="p_{{ p.key }}" name="p_{{ p.key }}"
+                       value="{{ p.value }}" {% if not can_edit %}disabled{% endif %}>
+              {% endif %}
+              {% if p.hint_text %}<span class="fs-12 text-muted">{{ p.hint_text }}</span>{% endif %}
+            </div>
+            {% endif %}
+
+          </div>
+          {% endfor %}
+
+          {% if can_edit %}
+          <div class="mt-4 pt-3 border-top">
+            <button type="submit" class="btn btn-primary btn-wave">
+              <i class="fe fe-save me-1"></i>{{ t('ignis.settings.save_section')|replace('{name}', s.name) }}
+            </button>
+          </div>
+          {% endif %}
+        </form>
+
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}

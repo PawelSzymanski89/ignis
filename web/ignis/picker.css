@@ -1,0 +1,38 @@
+/* Picker (picker.js). Colours from the app tokens, with safe defaults. */
+.picker { position: relative; display: inline-block; min-width: 0; }
+.picker-button {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 32px;
+  border: 0; background: transparent; color: inherit; font: inherit; font-weight: 600;
+  padding: 0 22px 0 4px; cursor: pointer; border-radius: 6px; position: relative;
+}
+.picker-button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-button::after {
+  content: ''; position: absolute; right: 6px; top: 50%; width: 7px; height: 7px; margin-top: -5px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg);
+}
+.picker-button:focus-visible { outline: 2px solid var(--color-ring, #2563eb); outline-offset: 2px; }
+.picker-panel {
+  position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; width: min(340px, calc(100vw - 32px));
+  background: var(--color-card, #fff); color: var(--color-foreground, #111);
+  border: 1px solid var(--color-border, #d4d4d8); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .14); padding: 8px;
+}
+.picker-search {
+  width: 100%; box-sizing: border-box; height: 38px; padding: 0 10px; font: inherit;
+  border: 1px solid var(--color-border, #d4d4d8); border-radius: 8px; background: var(--color-background, #fff); color: inherit;
+}
+.picker-search:focus { outline: 2px solid var(--color-ring, #2563eb); outline-offset: 0; }
+.picker-list { list-style: none; margin: 6px 0 0; padding: 0; max-height: min(320px, 50vh); overflow-y: auto; }
+.picker-list li {
+  padding: 8px 10px; border-radius: 6px; cursor: pointer; min-height: 20px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.picker-list li:hover, .picker-list li.active { background: var(--color-muted, #f1f5f9); }
+.picker-list li[aria-selected="true"] { font-weight: 700; }
+.picker-list li[aria-selected="true"]::before { content: '✓ '; }
+.picker-status:not(.empty) { display: none; }
+.picker-status.empty { padding: 10px; color: var(--color-muted-foreground, #555); }
+@media (max-width: 480px) {
+  .picker-panel { position: fixed; top: var(--picker-top, 64px); left: 16px; right: 16px; width: auto; }
+  .picker-list { max-height: calc(100vh - var(--picker-top, 64px) - 90px); }
+}

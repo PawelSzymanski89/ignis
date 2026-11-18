@@ -1,0 +1,31 @@
+{% extends "_layout_bare.html" %}
+{% block content %}
+{# No .error-bg class: it gives a light blue background for a particles-js animation
+   we do not have — on the dark panel it looked like a blunder. The background comes from the theme,
+   so the error page looks consistent in both light and dark mode.
+   The demo image 1.png is gone too — in the package it is a grey placeholder. #}
+<div class="container">
+  <div class="row justify-content-center align-items-center" style="min-height:100vh">
+    <div class="col-md-8 col-lg-6 col-xl-5">
+      <div class="card custom-card text-center">
+        <div class="card-body p-5">
+          <span class="avatar avatar-xl avatar-rounded bg-{{ color }}-transparent mb-4">
+            <i class="{{ icon }} fs-24"></i>
+          </span>
+          <h1 class="fw-semibold mb-1" style="font-size:3.5rem;line-height:1">{{ code }}</h1>
+          <h5 class="fw-semibold mb-2">{{ title }}</h5>
+          <p class="text-muted mb-4">{{ description }}</p>
+          <div class="d-flex gap-2 justify-content-center flex-wrap">
+            <a class="btn btn-primary btn-wave" href="{{ back }}">
+              <i class="fe fe-home me-1"></i>{{ back_label }}
+            </a>
+            <a class="btn btn-outline-secondary btn-wave" href="{{ back }}" data-back>
+              <i class="fe fe-arrow-left me-1"></i>{{ previous_label }}
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

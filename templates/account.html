@@ -1,0 +1,119 @@
+{% extends layout %}
+{% block heading %}{{ t('ignis.account.title') }}{% endblock %}
+{% block breadcrumb %}{{ t('ignis.account.breadcrumb') }}{% endblock %}
+
+{% block content %}
+{% from "_components.html" import card %}
+
+{% if must_change %}
+<div class="alert alert-warning"><i class="fe fe-alert-triangle me-1"></i>
+  <b>{{ t('ignis.account.must_change') }}</b> {{ t('ignis.account.must_change_why') }}</div>
+{% endif %}
+
+<div class="row">
+  <div class="col-xl-7">
+    {% call card(t('ignis.account.password_card'), subtitle=t('ignis.account.password_card_sub')) %}
+      <form method="post" class="row g-2">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="triggerAction" value="password">
+        <div class="col-12">
+          <label class="form-label fs-12">{{ t('ignis.account.old_password') }}</label>
+          <input class="form-control" type="password" name="old_password" autocomplete="current-password" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fs-12">{{ t('ignis.account.new_password') }}</label>
+          <input class="form-control" type="password" name="new_password" autocomplete="new-password" minlength="10" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fs-12">{{ t('ignis.account.repeat_password') }}</label>
+          <input class="form-control" type="password" name="repeat_password" autocomplete="new-password" minlength="10" required>
+        </div>
+        <div class="col-12">
+          <button class="btn btn-primary btn-wave"><i class="fe fe-key me-1"></i>{{ t('ignis.account.change_password') }}</button>
+          <span class="fs-11 text-muted ms-2">{{ t('ignis.account.change_closes') }}</span>
+        </div>
+      </form>
+    {% endcall %}
+  </div>
+
+  <div class="col-xl-5">
+    {% call card(t('ignis.account.totp_card'), subtitle=t('ignis.account.totp_card_sub')) %}
+      {% if has_totp %}
+      <p class="fs-13 mb-2"><span class="badge bg-success-transparent">{{ t('ignis.account.totp_on') }}</span>
+        {{ t('ignis.account.totp_on_info') }}</p>
+      <form method="post" class="row g-2 align-items-end">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="triggerAction" value="totp_disable">
+        <div class="col-7">
+          <label class="form-label fs-12">{{ t('ignis.account.password_to_disable') }}</label>
+          <input class="form-control form-control-sm" type="password" name="password_confirm"
+                 autocomplete="current-password">
+        </div>
+        <div class="col-5">
+          <button class="btn btn-sm btn-light btn-wave w-100">{{ t('ignis.account.disable') }}</button>
+        </div>
+      </form>
+
+      {% elif new_secret %}
+      <p class="fs-13 mb-2">{{ t('ignis.account.totp_add') }}</p>
+      <div class="border rounded p-2 mb-2 text-center">
+        <span class="mono fs-14 fw-semibold">{{ new_secret_readable }}</span>
+        <a class="d-block fs-11 mt-1" href="{{ new_secret_uri }}">{{ t('ignis.account.totp_open') }}</a>
+      </div>
+      {% if code_error %}<div class="alert alert-danger fs-12 py-2">{{ code_error }}</div>{% endif %}
+      <form method="post" class="row g-2 align-items-end">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="triggerAction" value="totp_enable">
+        <div class="col-12">
+          <label class="form-label fs-12">{{ t('ignis.account.password') }}</label>
+          <input class="form-control form-control-sm" type="password" name="password_confirm"
+                 autocomplete="current-password" required>
+        </div>
+        <div class="col-7">
+          <label class="form-label fs-12">{{ t('ignis.account.code') }}</label>
+          <input class="form-control form-control-sm mono" name="code" inputmode="numeric"
+                 maxlength="7" autocomplete="one-time-code" autofocus>
+        </div>
+        <div class="col-5">
+          <button class="btn btn-sm btn-primary btn-wave w-100">{{ t('ignis.account.enable') }}</button>
+        </div>
+      </form>
+      <p class="fs-11 text-muted mt-2 mb-0">{{ t('ignis.account.totp_saved_after') }}</p>
+
+      {% else %}
+      {% if recommended %}
+      <p class="fs-13 mb-2"><i class="fe fe-alert-triangle text-warning me-1"></i>
+        {{ t('ignis.account.totp_recommended') }}</p>
+      {% else %}
+      <p class="fs-13 mb-2">{{ t('ignis.account.totp_why') }}</p>
+      {% endif %}
+      <form method="post">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="triggerAction" value="totp_start">
+        <button class="btn btn-sm btn-primary btn-wave">
+          <i class="fe fe-smartphone me-1"></i>{{ t('ignis.account.totp_start') }}</button>
+      </form>
+      <p class="fs-11 text-muted mt-2 mb-0">{{ t('ignis.account.totp_lost') }}</p>
+      {% endif %}
+    {% endcall %}
+
+    {% call card(t('ignis.account.this_account')) %}
+      <table class="table table-sm fs-13 mb-3">
+        <tr><td class="text-muted">{{ t('ignis.account.login') }}</td><td class="fw-semibold">{{ my_login }}</td></tr>
+        <tr><td class="text-muted">{{ t('ignis.account.panel') }}</td><td>{{ my_service }}</td></tr>
+        <tr><td class="text-muted">{{ t('ignis.account.packages') }}</td>
+          <td>{% if packages %}{{ packages|join(', ') }}{% else %}<span class="text-muted">{{ t('ignis.account.none') }}</span>{% endif %}</td></tr>
+        <tr><td class="text-muted">{{ t('ignis.account.session_expires') }}</td><td>{{ t('ignis.account.session_hours')|replace('{hours}', session_hours ~ '') }}</td></tr>
+      </table>
+      <form method="post">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="triggerAction" value="sessions">
+        <button class="btn btn-sm btn-light btn-wave"
+                data-confirm="{{ t('ignis.account.logout_all_confirm') }}">
+          <i class="fe fe-log-out me-1"></i>{{ t('ignis.account.logout_all') }}</button>
+      </form>
+      <p class="fs-11 text-muted mt-2 mb-0">{{ t('ignis.account.logout_all_why') }}</p>
+    {% endcall %}
+  </div>
+</div>
+{% endblock %}
