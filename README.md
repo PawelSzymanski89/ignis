@@ -83,6 +83,7 @@ Every string in the model is HTML-escaped before it reaches the template; `Html(
 - [Features](#features)
 - [Quick start](#quick-start)
 - [Your own application](#your-own-application)
+- [Caching](#-caching)
 - [Architecture](#architecture)
 - [Configuration](#configuration)
 - [Content-Security-Policy](#content-security-policy)
@@ -148,6 +149,7 @@ second factor is built into the panel.
 | 🔑 | **Auth** | Login with TOTP second factor (RFC 6238), forced password change and rate limits; accounts, permission packages, grants and denials with a panel to manage them; front-end customer accounts (password, reset token, separate session); JWT RS256 and HMAC-signed links |
 | 🏢 | **Tenancy** | Tenant resolved from `Host` once per request; a per-request transaction with `ignis.service` set locally; sessions in Redis, so every node behind the load balancer sees the same state |
 | 📦 | **Storage** | File storage on S3/MinIO, with metadata and folders in PostgreSQL |
+| ⚡ | **Caching** | `@Cached` entity mirror in Redis shared by every node; permission and settings caches with invalidation after commit; in-memory domain map; immutable versioned assets and ETag/304 — [details](#-caching) |
 | 🛠️ | **Ops** | Audit log (`audit_log`) for every panel action including its outcome, logins and 2FA; `/health` health check; graceful shutdown; trusted-proxy client address; translations and time zones; console tools for emergencies |
 
 > [!NOTE]
@@ -235,6 +237,126 @@ Future<void> main() => Ignis.start(
 - `dart:mirrors` only sees classes reachable from `main`, so **your barrel must be imported in
   `bin/server.dart`**.
 - Templates and static files are overridden by a file with the same name in your directories.
+
+## ⚡ Caching
+
+Ignis keeps **one cache layer in Redis that every node shares** and a few small layers in node memory and
+in HTTP. All of them work with zero configuration. Each one has a clear owner and a clear invalidation rule.
+
+| Layer | What | Where it lives | Invalidation |
+|---|---|---|---|
+| 🪞 Entity mirror | Rows of `@Cached` entities | Redis `entity:<Type>:<id>` | Rewritten after every `save`/`insert`/`upsert`, dropped on `delete`; optional TTL |
+| 🔑 Permissions | Effective permissions of an account | Redis `perm:<login>`, 15 min | `Permissions.invalidate` / `invalidateMany` after the transaction ends |
+| ⚙️ Settings | Settings of one service (secrets **encrypted**) | Redis `settings:<service>`, 60 s | Dropped after every `saveSetting` |
+| 🌐 Domain map | Host → service, name, active flag | Node memory | Re-read every `Tenants.refreshing` (30 s) or after `Tenants.refresh()` |
+| 📦 Static assets | `/assets/…` with `?v=<content hash>` | Browser / CDN | The URL changes with the file |
+| 🧾 Conditional JSON | `conditionalJson(...)` responses | Browser / client | Weak ETag of the content → 304 |
+| 🎫 Sessions *(shared state)* | Panel `sess:` and customer `csess:` sessions | Redis, keyed by `sha256(token)` | Logout, password change, TTL |
+
+### 🪞 `@Cached` entity mirror
+
+Put `@Cached` next to `@Entity` and the row is mirrored in Redis under `entity:<Type>:<id>`, so every node
+reads the same copy:
+
+- **Read-through:** `readEntity<T>(id)` / `Orm.read<T>(id)` checks Redis first. On a miss it reads the
+  database and fills the mirror.
+- **Database first:** `saveEntity` / `Orm.save` writes the mirror only **after** the database
+  write. An update runs under a distributed per-entity lock `lock:<Type>:<id>` (`SET NX EX 5`). The engine
+  waits for it for about 2 s, then goes ahead without it (fail-open), so a request never hangs on a lock.
+- `Orm.insert` and `Orm.upsert` refresh the mirror too. `Orm.delete<T>(id)` removes it.
+- `@Cached(ttl: 3600)` expires the mirror after an hour. `ttl: 0` (the default) means no expiry.
+- `readEntitys<T>()` / `Orm.readAll` and `Orm.pick` always go to the database.
+
+> [!IMPORTANT]
+> `@Cached` is for **global data** — dictionaries, platform configuration. An entity with a `service` column
+> cannot be cached: the node refuses to start with
+> `StateError: @Cached on an entity with a service column (…) would bypass service isolation`.
+> Tenant data never lands in the shared cache.
+
+```dart
+@Entity('currencies', pk: 'code')
+@Cached(ttl: 3600)            // mirror lives for an hour; no `service` column — global data
+class Currency {
+  String code = '';           // app-assigned key → Orm.insert / Orm.upsert
+  String name = '';
+  int decimals = 2;
+}
+
+@Page('/v1/currencies/{code}', api: true)
+class CurrencyApi extends PageEngine {
+  @override
+  Future<bool> processData() async {
+    final c = await readEntity<Currency>(get('code') ?? '');   // Redis first, then the database
+    if (c == null) return notFound();
+    return conditionalJson({'code': c.code, 'name': c.name, 'decimals': c.decimals}, maxAge: 60);
+  }
+}
+```
+
+### 🔑 Permission cache
+
+`Permissions.forUser(login)` caches the effective permissions in `perm:<login>` for 15 minutes. Every
+change to a package, grant or assignment calls `Permissions.invalidate` / `invalidateMany`. The keys are
+dropped through `Db.afterTransaction`, so **after** the request transaction ends. If they were dropped
+before COMMIT, a parallel request on another node could rebuild the cache from the old state. If Redis is
+down, permissions are computed from the database, just slower.
+
+```dart
+await Permissions.invalidate('alice');           // one account
+await Permissions.invalidateMany(['bob', 'eve']); // e.g. holders of a changed package
+```
+
+### ⚙️ Settings cache
+
+`Permissions.settings(service)` caches one service's settings in `settings:<service>` for 60 s. Redis holds
+**only the encrypted values** of secrets — plaintext exists only in node memory.
+`settings(service, secrets: false)` skips secret keys and decryption altogether; the panel uses it for the
+template model. `saveSetting` drops the key **after** the database write.
+
+### 🌐 Domain map
+
+The tenant comes from `Host`, and the node resolves it from an **in-memory map of all domains**:
+
+- One query reloads the whole map every `Tenants.refreshing` (30 s by default). Parallel requests wait for
+  that one load instead of each running its own.
+- An unknown or malformed `Host` costs **no database query and no Redis key**, so random headers cannot
+  flood the pool.
+- If a reload fails, the node keeps the previous map and tries again 5 s later.
+- After changing services or domains, call `Tenants.refresh()`. This node reloads on the next request, the
+  others within `refreshing`.
+
+### 📦 HTTP caching
+
+| Response | `Cache-Control` | Revalidation |
+|---|---|---|
+| `/assets/…?v=<hash>` | `public, max-age=31536000, immutable` | — |
+| `/assets/…` without `?v` | `no-cache` | Weak ETag → 304 |
+| `Mount(...)` file matched by `immutable` | `public, max-age=31536000, immutable` | Weak ETag → 304 |
+| Other `Mount(...)` files | `public, max-age=<maxAge>` (300 by default) | Weak ETag → 304 |
+| `conditionalJson(obj, maxAge: n)` | `private, max-age=n` | Weak content ETag → 304 |
+| Dynamic HTML / JSON | `no-store`, unless the page sets its own | — |
+
+- The renderer appends `?v=<md5, 10 hex>` to every `href="/assets/…"` and `src="/assets/…"` in your
+  templates automatically. The hash is computed once per file per process.
+- Text assets are gzipped once and served from memory (files up to 1 MB).
+
+```dart
+Ignis.start(
+  mounts: [
+    Mount('/sdk/', 'web/sdk',
+        maxAge: 600,
+        immutable: (path) => path.startsWith('v1.4.0/')), // versioned directory → cached for a year
+  ],
+  // …
+);
+```
+
+### ⚖️ Why it scales
+
+Everything that must agree across nodes — sessions, permissions, settings, entity mirrors, locks — lives in
+Redis. So **every node sees the same state**, and a plain round-robin load balancer works without sticky
+sessions. Every Redis call has a **2 s limit**. After an error the connection is dropped and the next call
+opens a new one, so a Redis restart does not require restarting the nodes.
 
 ## Architecture
 
