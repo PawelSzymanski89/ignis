@@ -149,7 +149,7 @@ second factor is built into the panel.
 | 🔑 | **Auth** | Login with TOTP second factor (RFC 6238), forced password change and rate limits; accounts, permission packages, grants and denials with a panel to manage them; front-end customer accounts (password, reset token, separate session); JWT RS256 and HMAC-signed links |
 | 🏢 | **Tenancy** | Tenant resolved from `Host` once per request; a per-request transaction with `ignis.service` set locally; sessions in Redis, so every node behind the load balancer sees the same state |
 | 📦 | **Storage** | File storage on S3/MinIO, with metadata and folders in PostgreSQL |
-| ⚡ | **Caching** | `@Cached` entity mirror in Redis shared by every node; permission and settings caches with invalidation after commit; in-memory domain map; immutable versioned assets and ETag/304 — [details](#-caching) |
+| ⚡ | **Caching** | `@Cached` entity mirror in Redis shared by every node; permission cache invalidated after commit; settings cache; in-memory domain map; immutable versioned assets and ETag/304 — [details](#-caching) |
 | 🛠️ | **Ops** | Audit log (`audit_log`) for every panel action including its outcome, logins and 2FA; `/health` health check; graceful shutdown; trusted-proxy client address; translations and time zones; console tools for emergencies |
 
 > [!NOTE]
@@ -245,7 +245,7 @@ in HTTP. All of them work with zero configuration. Each one has a clear owner an
 
 | Layer | What | Where it lives | Invalidation |
 |---|---|---|---|
-| 🪞 Entity mirror | Rows of `@Cached` entities | Redis `entity:<Type>:<id>` | Rewritten after every `save`/`insert`/`upsert`, dropped on `delete`; optional TTL |
+| 🪞 Entity mirror | Rows of `@Cached` entities | Redis `entity:<Type>:<id>` | Refreshed on `save`/`insert`/`upsert`, dropped on `delete`; optional TTL |
 | 🔑 Permissions | Effective permissions of an account | Redis `perm:<login>`, 15 min | `Permissions.invalidate` / `invalidateMany` after the transaction ends |
 | ⚙️ Settings | Settings of one service (secrets **encrypted**) | Redis `settings:<service>`, 60 s | Dropped after every `saveSetting` |
 | 🌐 Domain map | Host → service, name, active flag | Node memory | Re-read every `Tenants.refreshing` (30 s) or after `Tenants.refresh()` |
@@ -260,12 +260,12 @@ reads the same copy:
 
 - **Read-through:** `readEntity<T>(id)` / `Orm.read<T>(id)` checks Redis first. On a miss it reads the
   database and fills the mirror.
-- **Database first:** `saveEntity` / `Orm.save` writes the mirror only **after** the database
-  write. An update runs under a distributed per-entity lock `lock:<Type>:<id>` (`SET NX EX 5`). The engine
-  waits for it for about 2 s, then goes ahead without it (fail-open), so a request never hangs on a lock.
-- `Orm.insert` and `Orm.upsert` refresh the mirror too. `Orm.delete<T>(id)` removes it.
+- **Refreshed on write:** `saveEntity` / `Orm.save`, `Orm.insert` and `Orm.upsert` refresh the mirror.
+  `Orm.delete<T>(id)` removes it.
 - `@Cached(ttl: 3600)` expires the mirror after an hour. `ttl: 0` (the default) means no expiry.
 - `readEntitys<T>()` / `Orm.readAll` and `Orm.pick` always go to the database.
+
+Use `@Cached` for global, rarely-changing data (dictionaries, platform config).
 
 > [!IMPORTANT]
 > `@Cached` is for **global data** — dictionaries, platform configuration. An entity with a `service` column
@@ -353,7 +353,7 @@ Ignis.start(
 
 ### ⚖️ Why it scales
 
-Everything that must agree across nodes — sessions, permissions, settings, entity mirrors, locks — lives in
+Everything that must agree across nodes — sessions, permissions, settings, entity mirrors — lives in
 Redis. So **every node sees the same state**, and a plain round-robin load balancer works without sticky
 sessions. Every Redis call has a **2 s limit**. After an error the connection is dropped and the next call
 opens a new one, so a Redis restart does not require restarting the nodes.
