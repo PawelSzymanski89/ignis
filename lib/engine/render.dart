@@ -11,7 +11,8 @@
 //  ESCAPE (anti-XSS): jinja 0.6.7 has NO autoescape — `{{ x }}` prints raw.
 //  So we escape ON OUR SIDE, before data reaches the template:
 //    • every String in the model (also in nested Map/List) — in `sanitize()`,
-//    • object fields read through mirrors (`p.name`) — in `_attribute()`.
+//    • object fields read through mirrors (`p.name`) — in `_attribute()`,
+//    • anything else that reaches `{{ }}` (own toString(), exceptions, records) — in `_finalize()`.
 //  Trusted HTML is inserted deliberately, wrapped in `Html('<b>…</b>')` — only
 //  this type passes unchanged. Macros and {{ super() }} generate HTML in the template,
 //  so we do not touch them.
@@ -78,14 +79,24 @@ class Renderer {
         loader: FileSystemLoader(paths: paths),
         autoReload: false,
         getAttribute: _attribute,
+        finalize: _finalize,
       );
+
+  /// Last line of defence at every `{{ }}`: values `sanitize()` did not reach print through
+  /// `toString()`, so they are escaped here. Strings, collections and MapEntry are already clean
+  /// (or are macro/filter output), Html is trusted.
+  static Object _finalize(Object? v) => switch (v) {
+        null => '',
+        String() || num() || bool() || Html() || Map() || Iterable() || MapEntry() => v,
+        _ => _esc.convert(v.toString()),
+      };
 
   /// `x.y` in a template. Maps are read directly (no mirrors and no
   /// NoSuchMethodError exception on every dot), object fields through reflection — and those
   /// we escape here, because `sanitize()` does not go inside objects.
   static Object? _attribute(String name, Object? object) {
     if (object is Map && object.containsKey(name)) return object[name];
-    // `{% for e in map %}` gives a MapEntry from the model map — key and value already escaped
+    // a MapEntry from the model (or from iterating a model map) — key and value already escaped by sanitize()
     if (object is MapEntry && (name == 'key' || name == 'value')) return name == 'key' ? object.key : object.value;
     // an object's collection field (List<String>, Map) must go through escaping too —
     // a Map from the model is already clean, but a Map taken out of an object through mirrors is not.
@@ -98,6 +109,7 @@ class Renderer {
         Html h => h,
         // keys too: `{% for k, v in map.items() %}{{ k }}` prints them directly
         Map m => {for (final e in m.entries) sanitize(e.key): sanitize(e.value)},
+        MapEntry e => MapEntry(sanitize(e.key), sanitize(e.value)),
         Iterable l => [for (final x in l) sanitize(x)],
         _ => v,
       };

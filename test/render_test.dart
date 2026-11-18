@@ -17,9 +17,14 @@ class Obj {
   final Map<String, String> map = {'k': '<u>'};
 }
 
+class Shout {
+  @override
+  String toString() => '<img src=x onerror=1>';
+}
+
 void main() {
   String r(String tpl, Map<String, Object?> model) =>
-      Environment(getAttribute: Renderer.env.getAttribute)
+      Environment(getAttribute: Renderer.env.getAttribute, finalize: Renderer.env.finalize)
           .fromString(tpl)
           .render(Map<String, Object?>.from(Renderer.sanitize(model) as Map));
 
@@ -46,6 +51,22 @@ void main() {
       r('{% for e in m %}{{ e.key }}={{ e.value }}{% endfor %}', {'m': {'<i>': '<b>'}}) == '&lt;i&gt;=&lt;b&gt;');
   check('FIX-50: lookup po kluczu ze zwykłych znaków dalej działa', r('{{ m.a_b }}', {'m': {'a_b': 'x'}}) == 'x');
   check('length na mapie dalej działa', r('{{ m.length }}', {'m': {'a': 1, 'b': 2}}) == '2');
+
+  print('HARD-L.6 — values that used to print raw:');
+  const x = '<img src=x onerror=1>';
+  const xe = '&lt;img src=x onerror=1&gt;';
+  check('list of MapEntry (map.entries.toList())',
+      r('{% for e in l %}{{ e.key }}={{ e.value }}{% endfor %}', {'l': {x: x}.entries.toList()}) == '$xe=$xe');
+  check('single MapEntry', r('{{ e.key }}|{{ e.value }}', {'e': const MapEntry(x, x)}) == '$xe|$xe');
+  check('object with its own toString()', r('{{ o }}', {'o': Shout()}) == xe);
+  check('exception (FormatException)', r('{{ e }}', {'e': const FormatException(x)}) == 'FormatException: $xe');
+  check('record (String, int)', r('{{ t }}', {'t': (x, 1)}) == '($xe, 1)');
+  check('Set<String> still escaped once', r('{% for s in z %}{{ s }}{% endfor %}', {'z': {x}}) == xe);
+  check('Html still passes unchanged', r('{{ h }}', {'h': const Html(x)}) == x);
+  check('macro output not escaped',
+      r('{% macro b(t) %}<b>{{ t }}</b>{% endmacro %}{{ b(x) }}', {'x': x}) == '<b>$xe</b>');
+  check('filters work on escaped values', r('{{ x|upper }}|{{ l|join(",") }}', {'x': 'a<', 'l': ['<', 'b']}) == 'A&LT;|&lt;,b');
+  check('null prints empty', r('[{{ n }}]', {'n': null}) == '[]');
 
   print('szablony z kilku katalogów:');
   final app = Directory.systemTemp.createTempSync('ignis_szablony_');
