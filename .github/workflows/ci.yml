@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install redis-server
+        run: sudo apt-get update && sudo apt-get install -y redis-server
+      - run: dart pub get
+      - run: dart analyze --fatal-infos
+      - name: Tests without a database
+        run: |
+          bad=0
+          for t in test/*_test.dart; do
+            if ! dart run "$t" > t.log 2>&1 || grep -qE "NOT PASSED|Unhandled exception" t.log; then
+              bad=$((bad+1)); echo "FAIL $t"; tail -20 t.log
+            fi
+          done
+          exit $bad
+      # Starts its own PostgreSQL (pinned @embedded-postgres binaries) and redis-server on private ports.
+      - name: Tests on PostgreSQL and Redis
+        run: tool/pg_test.sh

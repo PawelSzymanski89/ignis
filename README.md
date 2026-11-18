@@ -473,7 +473,8 @@ throw-away instances with:
 tool/pg_test.sh
 ```
 
-Without `IGNIS_DB_HOST` these tests skip themselves. Engineering rules are in [QUALITY.md](QUALITY.md).
+The `*_pg_test.dart` files matched by the loop above skip themselves without `IGNIS_DB_HOST` (three
+Redis-only session tests check `IGNIS_REDIS_HOST` instead). Engineering rules are in [QUALITY.md](QUALITY.md).
 
 ## Status
 

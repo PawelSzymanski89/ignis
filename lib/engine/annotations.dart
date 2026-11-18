@@ -131,7 +131,7 @@ class SessionSyncedMarker {
 const Synced = SyncedMarker();
 
 /// Like @Synced, but PER-USER (per-session): under the session token, TTL = session lifetime
-/// → gone when the session expires. Redis: `sess:<token>:synced:<Class>.<field>`.
+/// → gone when the session expires. Redis: `ssync:<sha256(token)>:<Class>.<field>`.
 const SessionSynced = SessionSyncedMarker();
 
 /// Domain entity — mapped to a Postgres table VIA REFLECTION (no codegen).

@@ -1,9 +1,9 @@
 # Ignis security
 
-This document describes the **actual state** of Ignis 0.1.0, not intentions. Every point maps to a
+This document describes the **actual state** of Ignis 0.1.1, not intentions. Every point maps to a
 file you can check. Open problems are listed under "Known gaps", not left out.
 
-> This 0.1.0 release includes the pre-release audit fixes for areas A (tenant isolation / auth),
+> The first public release (0.1.0) included the pre-release audit fixes for areas A (tenant isolation / auth),
 > B (network edge / headers) and C/D (panel, audit log, documentation).
 
 ## Reporting a vulnerability
@@ -60,8 +60,9 @@ address, the `staff` realm, the account belonging to *this* service, and the per
   role owns the tables and would otherwise bypass its own policies (see "Known gaps" for a separate
   runtime role).
 - The write policy is **strict** (`service = context`). Read-only exceptions are explicit: `audit_log`
-  also shows rows with `target = <service>` (platform actions about this service), and `users` also shows
-  platform accounts (`service = 0`). These read exceptions do not grant the right to write those rows.
+  also shows rows with `target = <service>` (platform actions about this service). This read exception
+  does not grant the right to write those rows. `users` has no exception: a service does not see
+  platform accounts (`service = 0`).
 - Setup failures are not swallowed: `Schema.checkRls` verifies `ENABLE`+`FORCE` and the full policy
   set (with no foreign policies) in every `IGNIS_SCHEMA` mode; a mismatch aborts start-up.
 
@@ -215,7 +216,7 @@ requests without it makes the health check — with node and backend state — p
 
 | What | Impact | Where |
 |---|---|---|
-| **no request-concurrency limit** | one isolate per node, no backpressure | `bin/server.dart` |
+| **no request-concurrency limit** | one isolate per node, no backpressure | `engine/ignis.dart` (accept loop) |
 | **pagination only where `Listing` is used** | pages without it load everything | panel |
 | **backend TLS is off by default and not mutually authenticated** | relies on a private network unless `IGNIS_DB_SSL` / `IGNIS_S3_SSL` / `IGNIS_REDIS_TLS` are set | deployment |
 | **the app role owns the tables** | RLS holds via `FORCE`, but a compromised role could `ALTER`/`DROP` policies; a separate runtime role without table ownership is a deployment step | deployment, `engine/schema.dart` |
@@ -257,7 +258,7 @@ These are deliberate limits of the engine API, not bugs; code built on Ignis has
 - **Password-reset mail must not be sent inline.** `CustomerAccounts.resetToken` returns `null` for unknown
   accounts. If the page then `await`s an SMTP send only when a token came back, response time reveals
   which e-mails have accounts. Send in the background (`unawaited(...)` or a queue) and answer immediately.
-- **`IGNIS_KEY` cannot be rotated in 0.1.0.** Ciphertexts carry no key id, so changing the key makes every
+- **`IGNIS_KEY` cannot be rotated in 0.1.1.** Ciphertexts carry no key id, so changing the key makes every
   stored secret and TOTP seed unreadable. Generate it once (`openssl rand -hex 32`) and back it up. The node
   refuses a key made of one repeated character (e.g. 64 zeros).
 - **CSRF covers every unsafe method.** Non-API routes require the `csrf` token for any method other than
