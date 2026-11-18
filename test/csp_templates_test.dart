@@ -17,7 +17,7 @@ void main() {
   }
   for (final l in ['_layout.html', '_layout_bare.html']) {
     final t = File('templates/$l').readAsStringSync();
-    check('$l: CSP script-src self', t.contains("script-src 'self';"));
+    check('$l: CSP meta from Engine.cspMeta', t.contains('content="{{ csp }}"'));
     check('$l: bez nieużywanych bibliotek motywu', !RegExp('choices|flatpickr|pickr|jsvectormap').hasMatch(t));
     check('$l: Popper tylko z bootstrap.bundle', !t.contains('popper.min.js') && t.contains('bootstrap.bundle.min.js'));
     for (final z in ['div', 'ul', 'li']) {
