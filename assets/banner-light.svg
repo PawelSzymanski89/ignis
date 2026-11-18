@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" width="1280" height="320" role="img" aria-labelledby="title desc">
+  <title id="title">Ignis</title>
+  <desc id="desc">Ignis — a bare multi-tenant web engine for Dart</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff8f0"/>
+      <stop offset="0.55" stop-color="#fff1e3"/>
+      <stop offset="1" stop-color="#ffe9d6"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.22" cy="0.62" r="0.42">
+      <stop offset="0" stop-color="#ff7a18" stop-opacity="0.22"/>
+      <stop offset="0.5" stop-color="#e63946" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#e63946" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="flameOuter" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#e63946"/>
+      <stop offset="0.45" stop-color="#ff7a18"/>
+      <stop offset="1" stop-color="#ffb347"/>
+    </linearGradient>
+    <linearGradient id="flameInner" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#ffd166"/>
+      <stop offset="1" stop-color="#fff3c4"/>
+    </linearGradient>
+    <linearGradient id="word" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f59e0b"/>
+      <stop offset="0.5" stop-color="#ff7a18"/>
+      <stop offset="1" stop-color="#c81d25"/>
+    </linearGradient>
+    <linearGradient id="rule" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff7a18" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#ff7a18" stop-opacity="0"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#7a3b12" stroke-opacity="0.05" stroke-width="1"/>
+    </pattern>
+    <clipPath id="card">
+      <rect width="1280" height="320" rx="24"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#card)">
+    <rect width="1280" height="320" fill="url(#bg)"/>
+    <rect width="1280" height="320" fill="url(#grid)"/>
+    <rect width="1280" height="320" fill="url(#glow)"/>
+
+    <g fill="#ffb347">
+      <circle cx="248" cy="62" r="3" opacity="0.7"/>
+      <circle cx="306" cy="40" r="2" opacity="0.5"/>
+      <circle cx="216" cy="34" r="1.6" opacity="0.45"/>
+      <circle cx="330" cy="92" r="1.8" opacity="0.4"/>
+      <circle cx="190" cy="88" r="2.2" opacity="0.35"/>
+      <circle cx="1120" cy="70" r="1.6" opacity="0.25"/>
+      <circle cx="1170" cy="250" r="2" opacity="0.2"/>
+    </g>
+
+    <g transform="translate(202 80)">
+      <path fill="url(#flameOuter)" d="M60 0C70 30 110 55 110 100C110 135 88 160 60 160C32 160 10 135 10 100C10 75 25 60 35 45C38 65 45 75 55 78C50 55 52 25 60 0Z"/>
+      <path fill="url(#flameInner)" d="M60 70C66 90 85 102 85 125C85 143 74 155 60 155C46 155 35 143 35 127C35 112 45 104 50 95C52 108 57 112 62 113C58 100 56 85 60 70Z"/>
+    </g>
+  </g>
+
+  <rect x="0.5" y="0.5" width="1279" height="319" rx="23.5" fill="none" stroke="#ff7a18" stroke-opacity="0.25"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="360" y="172" font-size="124" font-weight="800" letter-spacing="-3" fill="url(#word)">Ignis</text>
+    <rect x="364" y="214" width="420" height="3" rx="1.5" fill="url(#rule)"/>
+    <text x="364" y="256" font-size="30" font-weight="500" fill="#3a2418">A bare multi-tenant web engine for Dart</text>
+    <text x="364" y="290" font-size="19" font-weight="400" fill="#7a5a45" letter-spacing="0.5">server-rendered HTML  ·  PostgreSQL row-level security  ·  strict CSP</text>
+  </g>
+</svg>
