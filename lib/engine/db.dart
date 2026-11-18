@@ -81,14 +81,18 @@ class DbSession {
   Future<TxSession> _tx() => _opening ??= () {
         final ready = Completer<TxSession>();
         final end = _done = Completer<Object?>();
+        var acquired = false;
         _result = _poolRef!.runTx((tx) async {
+          acquired = true;
           await tx.execute(r"SELECT set_config('" + Db.serviceGuc + r"', $1, true)", parameters: [_context]);
           ready.complete(tx);
           // the request error arrives as a value: completeError without a listener (the pool has not returned
           // the connection yet) would reach the request zone as unhandled
           if (await end.future case final error?) throw error;
         }).then((_) {}, onError: (Object e, StackTrace st) {
-          if (!ready.isCompleted) ready.completeError(e, st);
+          // no pool connection within connectTimeout: the node is saturated — 503 with Retry-After, not 500
+          final overloaded = !acquired && e is TimeoutException;
+          if (!ready.isCompleted) ready.completeError(overloaded ? const Overloaded() : e, st);
           throw e;
         });
         _result!.ignore(); // [_finish] takes the error; without this it would leak as unhandled

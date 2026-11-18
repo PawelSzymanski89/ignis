@@ -75,6 +75,8 @@ class Engine {
   /// an unhandled exception ends this one request (500), not the whole process.
   /// Also writes one log line per request and an id in `X-Request-Id`.
   static Future<void> guarded(HttpRequest req, Future<void> Function() handler) {
+    if (_inFlight >= maxInFlight) return _overloaded(req);
+    _inFlight++;
     final end = Completer<void>();
     final id = List.generate(8, (_) => _rng.nextInt(256)).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
     final elapsed = Stopwatch()..start();
@@ -108,10 +110,28 @@ class Engine {
       end.complete();
     }, error, zoneValues: {#ignisRequestId: id});
     return end.future.whenComplete(() {
+      _inFlight--;
       // the deadline timer does not stop on close() — on keep-alive it would kill the next request
       req.response.deadline = null;
       stdout.writeln(logLine(req.method, req.uri.path, req.response.statusCode, elapsed.elapsedMilliseconds, id));
     });
+  }
+
+  /// Requests handled at once (`IGNIS_MAX_INFLIGHT`, 512 by default); above it 503 with `Retry-After`
+  /// before routing, so a flood does not queue bodies, pool waits and bcrypt jobs without bound.
+  static int maxInFlight = int.tryParse(Platform.environment['IGNIS_MAX_INFLIGHT'] ?? '') ?? 512;
+  static int _inFlight = 0;
+
+  static Future<void> _overloaded(HttpRequest req) async {
+    final res = req.response;
+    res.headers.set(HttpHeaders.retryAfterHeader, '5');
+    securityHeaders(res.headers);
+    try {
+      if (PageRegistry.underApi(req.uri.path)) return await apiError(res, HttpStatus.serviceUnavailable);
+      await errorPage(res, HttpStatus.serviceUnavailable, 'other', language: requestLanguage(req));
+    } catch (_) {
+      await res.close().catchError((_) {});
+    }
   }
 
   static final _adminPage = reflectClass(AdminPage);

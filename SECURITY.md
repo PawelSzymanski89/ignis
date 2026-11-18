@@ -216,7 +216,7 @@ requests without it makes the health check — with node and backend state — p
 
 | What | Impact | Where |
 |---|---|---|
-| **no request-concurrency limit** | one isolate per node, no backpressure | `engine/ignis.dart` (accept loop) |
+| **coarse request-concurrency limit** | one isolate per node; above `IGNIS_MAX_INFLIGHT` (512) requests in flight, or when no pool connection frees up within 5 s, the node answers `503` with `Retry-After`; API bodies have no shared byte budget (up to 8 MB each after gzip) | `engine/engine.dart` (`Engine.guarded`), `engine/db.dart` |
 | **pagination only where `Listing` is used** | pages without it load everything | panel |
 | **backend TLS is off by default and not mutually authenticated** | relies on a private network unless `IGNIS_DB_SSL` / `IGNIS_S3_SSL` / `IGNIS_REDIS_TLS` are set | deployment |
 | **the app role owns the tables** | RLS holds via `FORCE`, but a compromised role could `ALTER`/`DROP` policies; a separate runtime role without table ownership is a deployment step | deployment, `engine/schema.dart` |
