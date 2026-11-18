@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1 — 2026-11-18
+
+### Added
+
+- Configurable Content-Security-Policy: `Ignis.start(extraCsp: {...})` adds sources per directive to the
+  base policy (e.g. an image host, `font-src`, `'wasm-unsafe-eval'` in `script-src`, `worker-src blob:`).
+  Unknown directives, malformed sources and `'unsafe-inline'`/`'unsafe-eval'` in script directives abort
+  start-up. Without it the policy is unchanged.
+- The page header, error pages, static `.html` files and the `<meta>` in the package layouts all use the
+  same computed policy (`Engine.csp`).
+
 ## 0.1.0 — 2026-11-18
 
 First public release, after the security and performance review. Details in `SECURITY.md`.

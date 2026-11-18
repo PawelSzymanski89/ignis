@@ -176,6 +176,27 @@ All configuration comes from environment variables read by the engine.
 | `IGNIS_S3_SSL` | — | `1` = HTTPS to S3 with certificate verification |
 | `IGNIS_S3_TIMEOUT_S` | `60` | deadline of one transfer to S3 |
 
+### Content-Security-Policy
+
+Every HTML response gets a strict CSP (`default-src 'self'; script-src 'self'; …; frame-ancestors 'self'`).
+An app can add sources per directive at start-up; they are merged into the base policy:
+
+```dart
+await Ignis.start(
+  extraCsp: {
+    'img-src': ['https://images.example.com'],
+    'font-src': ['https://fonts.example.com'],
+    'script-src': ["'wasm-unsafe-eval'"], // WebAssembly
+    'worker-src': ['blob:'],
+  },
+);
+```
+
+Only known fetch/navigation directives are accepted; sources must be a host/scheme or a quoted CSP keyword
+(no `;`, `,`, spaces or newlines). `'unsafe-inline'` and `'unsafe-eval'` are refused in `script-src*`.
+Invalid values throw `ArgumentError` and the node does not start. `Engine.buildCsp(extra)` returns the
+resulting policy for inspection.
+
 ### Console tools (`bin/`)
 
 | Tool | Purpose |
