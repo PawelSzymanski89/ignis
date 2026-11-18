@@ -240,14 +240,24 @@ class Schema {
     return errors;
   }
 
+  /// Session advisory lock taken by [sync] and `Seed.seed` (same key there): nodes starting at once would
+  /// otherwise race on CREATE TABLE / ADD COLUMN and on the initial admin account.
+  static const _startLock = 0x49676e73;
+
   /// Brings the database schema in line with the @Entity classes.
   static Future<void> sync() async {
     final mode = Platform.environment['IGNIS_SCHEMA'] ?? 'update';
     await Db.asSystemSession(() async {
-      if (mode != 'none') await _sync(mode);
-      final rls = await checkRls(await Db.connect());
-      if (rls.isNotEmpty) {
-        throw StateError('RLS does not match the code — the node will not start without service isolation:\n  • ${rls.join('\n  • ')}');
+      final c = await Db.connect();
+      await c.execute('SELECT pg_advisory_lock($_startLock)');
+      try {
+        if (mode != 'none') await _sync(mode);
+        final rls = await checkRls(c);
+        if (rls.isNotEmpty) {
+          throw StateError('RLS does not match the code — the node will not start without service isolation:\n  • ${rls.join('\n  • ')}');
+        }
+      } finally {
+        await c.execute('SELECT pg_advisory_unlock($_startLock)');
       }
     });
   }
