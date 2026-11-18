@@ -28,6 +28,7 @@ import 'package:jinja/jinja.dart';
 import 'package:jinja/loaders.dart';
 import 'package:jinja/reflection.dart' show getAttribute;
 
+import 'engine.dart';
 import 'ignis.dart';
 
 /// Grosze → „123.45”.
@@ -104,7 +105,7 @@ class Renderer {
   /// Renders template [name] (e.g. "dashboard.html") with [model] → ready HTML.
   static String render(String name, Map<String, Object?> model) =>
       versionAssets(
-          env.getTemplate(name).render({...(sanitize(model) as Map).cast<String, Object?>(), 'product': Ignis.brand}),
+          env.getTemplate(name).render({...(sanitize(model) as Map).cast<String, Object?>(), 'product': Ignis.brand, 'csp': Engine.cspMeta}),
           Ignis.assetDirs);
 
   /// Drops the environment — after a template changes on disk (dev).

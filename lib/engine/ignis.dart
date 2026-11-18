@@ -61,6 +61,7 @@ class Ignis {
 
   /// Node startup. [templates] — app template directories (they win over the package).
   /// [appAssets] — app static directories under `/assets/`, searched before `IGNIS_ASSETS`.
+  /// [extraCsp] — sources added to the base Content-Security-Policy per directive ([Engine.buildCsp]).
   /// App pages and entities must be imported in its `main` (mirrors).
   static Future<void> start(
       {List<String> templates = const [],
@@ -75,7 +76,9 @@ class Ignis {
       List<Mount> mounts = const [],
       String? homePage,
       String? errorBackUrl,
+      Map<String, List<String>> extraCsp = const {},
       String i18n = 'i18n'}) async {
+    Engine.csp = Engine.buildCsp(extraCsp);
     Ignis.permissions = permissions;
     Ignis.settingsSections = settingsSections;
     Ignis.mounts = mounts;

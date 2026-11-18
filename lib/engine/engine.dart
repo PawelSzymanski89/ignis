@@ -152,9 +152,55 @@ class Engine {
 
   /// CSP of every HTML response (pages, errors, static .html) — the `<meta>` in layouts stays as a
   /// fallback, but it does not cover `frame-ancestors` or pages on their own layouts.
-  static const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-      "font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
-      "frame-ancestors 'self'";
+  /// Set once at startup from [Ignis.start]'s `extraCsp` (see [buildCsp]).
+  static String csp = buildCsp(const {});
+
+  /// The same policy for the layouts' `<meta>` — a meta CSP ignores `frame-ancestors`.
+  static String get cspMeta => csp.replaceFirst(RegExp(r"; frame-ancestors [^;]*$"), '');
+
+  static const _cspBase = <String, List<String>>{
+    'default-src': ["'self'"],
+    'script-src': ["'self'"],
+    'style-src': ["'self'", "'unsafe-inline'"],
+    'img-src': ["'self'", 'data:'],
+    'font-src': ["'self'", 'data:'],
+    'connect-src': ["'self'"],
+    'object-src': ["'none'"],
+    'base-uri': ["'self'"],
+    'form-action': ["'self'"],
+  };
+  static const _cspDirectives = {
+    'default-src', 'script-src', 'style-src', 'img-src', 'font-src', 'connect-src', 'object-src', 'base-uri',
+    'form-action', 'frame-ancestors', 'media-src', 'frame-src', 'worker-src', 'child-src', 'manifest-src',
+    'script-src-elem', 'script-src-attr', 'style-src-elem', 'style-src-attr',
+  };
+  static final _cspKeyword = RegExp(r"^'(self|unsafe-inline|unsafe-eval|wasm-unsafe-eval|strict-dynamic|"
+      r"unsafe-hashes|report-sample|(nonce|sha256|sha384|sha512)-[A-Za-z0-9+/_=-]+)'$");
+  static final _cspHost = RegExp(r'^[A-Za-z0-9.*:/_%~+@\[\]-]+$');
+
+  /// The base policy plus [extra] sources per directive (e.g. `{'img-src': ['https://cdn.example.com']}`).
+  /// Throws [ArgumentError] on an unknown directive, a malformed source, `'none'`, or
+  /// `'unsafe-inline'`/`'unsafe-eval'` in a `script-src*` directive (`'wasm-unsafe-eval'` is allowed).
+  static String buildCsp(Map<String, List<String>> extra) {
+    final policy = {for (final e in _cspBase.entries) e.key: [...e.value]};
+    for (final MapEntry(key: name, value: sources) in extra.entries) {
+      if (!_cspDirectives.contains(name)) throw ArgumentError.value(name, 'extraCsp', 'unknown CSP directive');
+      for (final s in sources) {
+        if (!_cspKeyword.hasMatch(s) && !_cspHost.hasMatch(s)) {
+          throw ArgumentError.value(s, 'extraCsp[$name]', 'invalid CSP source');
+        }
+        if (name.startsWith('script-src') && (s == "'unsafe-inline'" || s == "'unsafe-eval'")) {
+          throw ArgumentError.value(s, 'extraCsp[$name]', 'not allowed in script directives');
+        }
+        final list = policy[name] ??= [];
+        list.remove("'none'");
+        if (!list.contains(s)) list.add(s);
+      }
+    }
+    final ancestors = ["'self'", ...?policy.remove('frame-ancestors')?.where((s) => s != "'self'")];
+    return [for (final e in policy.entries) '${e.key} ${e.value.join(' ')}', 'frame-ancestors ${ancestors.join(' ')}']
+        .join('; ');
+  }
 
   /// Id of the current request (from `guarded`), or null outside a request.
   static String? get requestId => Zone.current[#ignisRequestId] as String?;
