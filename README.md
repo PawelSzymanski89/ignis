@@ -393,6 +393,7 @@ All configuration comes from environment variables read by the engine. The requi
 | Variable | Default | Meaning |
 |---|---|---|
 | `IGNIS_KEY` | **required** | 64 hex chars; AES-GCM key for secrets and HMAC key for signatures. The node refuses to start without it |
+| `IGNIS_KEY_PREVIOUS` | — | the previous `IGNIS_KEY` during a rotation: secrets and TOTP seeds it encrypted stay readable until `bin/rekey.dart` re-encrypts them. An invalid value stops the node |
 | `IGNIS_DOMAINS` | **required** | comma-separated system domains; `admin.<domain>` is the platform panel |
 | `IGNIS_DB_HOST` | **required** | PostgreSQL host |
 | `IGNIS_DB_PASS` | **required** | PostgreSQL password |
@@ -434,6 +435,7 @@ All configuration comes from environment variables read by the engine. The requi
 |---|---|
 | `server.dart` | the core node |
 | `account.dart list \| disable-2fa <login> \| password <login>` | emergency 2FA removal or password reset. The password is read from stdin and the action is written to the audit log |
+| `rekey.dart` | after an `IGNIS_KEY` rotation re-encrypts settings secrets and TOTP seeds under the current key; idempotent, prints how many records it changed and exits with 1 if any is unreadable with both keys |
 | `purge.dart list \| delete <slug>…` | removes a service with its rows, S3 objects, sessions and caches. Asks for confirmation and writes to the audit log |
 | `smoke_panel.dart <panel-url> <login>` | logs in and opens every panel route. The password is read from stdin; any 5xx makes it exit with 1 |
 
@@ -490,7 +492,7 @@ English; a Polish translation of the panel ships in `i18n/pl.json`. See the [cha
 
 Open items already recorded in [SECURITY.md](SECURITY.md#known-gaps-and-debt) — directions, not promises:
 
-- **Key rotation** — `IGNIS_KEY` has no key id or keyring yet.
+- **Key rotation with a key id** — today rotation is two-key (`IGNIS_KEY_PREVIOUS` + `bin/rekey.dart`), ciphertexts carry no key id.
 - **Separate runtime database role** without table ownership, so a compromised role cannot alter RLS policies.
 - **Request-concurrency limit** — one isolate per node, no backpressure today.
 - **Open decisions:** tenant subdomains vs. a separate registrable domain, per-tenant namespacing of staff

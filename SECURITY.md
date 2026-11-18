@@ -127,6 +127,15 @@ address, the `staff` realm, the account belonging to *this* service, and the per
 - Service secrets (settings fields of type `password`/`file`) are stored in `settings` **encrypted with
   AES-GCM** under `IGNIS_KEY` (`engine/crypto.dart`). **Without a valid key the node does not start**
   — otherwise secrets would hit the database in plaintext.
+- **Key rotation** (ciphertexts carry no key id, so it is two-key, not a keyring):
+  1. on every node set the new key in `IGNIS_KEY` and the old one in `IGNIS_KEY_PREVIOUS`, restart —
+     decryption tries the current key first, then the previous one; new writes use the current key;
+  2. run `dart run bin/rekey.dart` once (same environment): it re-encrypts settings secrets and TOTP seeds
+     under the current key, is idempotent and prints how many records it changed; exit code 1 means some
+     value is readable with neither key — keep `IGNIS_KEY_PREVIOUS` until that is explained;
+  3. remove `IGNIS_KEY_PREVIOUS` and restart.
+  Signatures (`engine/signature.dart`) use only the current key: signed links issued before the rotation
+  stop verifying. A malformed `IGNIS_KEY_PREVIOUS` stops the node.
 - Secrets **do not return to the browser**: the form only knows "set / unset", and an empty field on
   save means "leave unchanged".
 - Infrastructure credentials (database, Redis, S3) come from environment variables, not the repo.
@@ -227,7 +236,6 @@ requests without it makes the health check — with node and backend state — p
 |---|---|
 | **tenant subdomains** | fronts and panels on system subdomains share an origin / are same-site with the platform panel — a Public Suffix List entry or a separate registrable domain |
 | **staff login namespace** | logins are global (existence oracle, squatting); per-tenant namespacing as for customer accounts is the alternative |
-| **key rotation** | `IGNIS_KEY` has no key id or keyring; in scope for 0.1.x or later |
 | **unset `IGNIS_TRUSTED_PROXIES`** | today a warning; whether it should block start-up, and whether to add a breached-password check |
 
 ## Third-party notes
@@ -261,9 +269,9 @@ These are deliberate limits of the engine API, not bugs; code built on Ignis has
 - **Password-reset mail must not be sent inline.** `CustomerAccounts.resetToken` returns `null` for unknown
   accounts. If the page then `await`s an SMTP send only when a token came back, response time reveals
   which e-mails have accounts. Send in the background (`unawaited(...)` or a queue) and answer immediately.
-- **`IGNIS_KEY` cannot be rotated in 0.1.1.** Ciphertexts carry no key id, so changing the key makes every
-  stored secret and TOTP seed unreadable. Generate it once (`openssl rand -hex 32`) and back it up. The node
-  refuses a key made of one repeated character (e.g. 64 zeros).
+- **Keep `IGNIS_KEY` backed up.** Losing it makes every stored secret and TOTP seed unreadable; rotate
+  it with `IGNIS_KEY_PREVIOUS` + `bin/rekey.dart` (see [Secrets](#secrets)), never by just replacing it.
+  The node refuses a key made of one repeated character (e.g. 64 zeros).
 - **CSRF covers every unsafe method.** Non-API routes require the `csrf` token for any method other than
   GET/HEAD/OPTIONS (PUT, PATCH and DELETE included), sent in an `x-www-form-urlencoded` body. Only routes
   declared `@Page(api: true)` skip it; an API path prefix alone selects the JSON error format, not the exemption.

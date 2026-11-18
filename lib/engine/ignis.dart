@@ -96,6 +96,10 @@ class Ignis {
       throw StateError('No IGNIS_KEY (64 random hex chars — e.g. openssl rand -hex 32) — the node will not start, because '
           'secrets in settings would reach the database as plain text');
     }
+    if (Crypto.previousKeyInvalid) {
+      throw StateError('IGNIS_KEY_PREVIOUS is set but is not a valid key (64 random hex chars) — the node will not start, '
+          'because secrets not yet re-encrypted by bin/rekey.dart would be unreadable');
+    }
 
     // Reflective page scan → route registry (once, at startup).
     PageRegistry.build();
