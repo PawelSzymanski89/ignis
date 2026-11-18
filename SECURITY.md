@@ -255,6 +255,9 @@ These are deliberate limits of the engine API, not bugs; code built on Ignis has
   `Db.asPlatform` switch `ignis.service` on the request's single transaction for the duration of the
   body. Any query of the same request that runs *concurrently* (`Future.wait([Db.asSystem(a), b()])`,
   an un-awaited future) sees every tenant. Always `await` an elevated block before issuing other queries.
+  Elevated blocks of one request run one after another (an overlapping block waits), and after the last
+  one the request's own context is restored — it is never read back from the database. `Db.release()` and
+  `Db.commit()` inside an elevated block throw `StateError`: they would end the transaction the block runs in.
 - **Password-reset mail must not be sent inline.** `CustomerAccounts.resetToken` returns `null` for unknown
   accounts. If the page then `await`s an SMTP send only when a token came back, response time reveals
   which e-mails have accounts. Send in the background (`unawaited(...)` or a queue) and answer immediately.

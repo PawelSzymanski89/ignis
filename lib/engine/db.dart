@@ -54,12 +54,21 @@ class DbSession {
   bool _closed = false;
   int _points = 0;
   final _afterEnd = <Future<void> Function()>[];
+  Future<void> _raisedChain = Future.value();
+  int _raised = 0;
 
   /// Whether queries run with an explicit context (request or system).
   bool get inContext => _context != null || _connection != null;
 
   void _alive() {
     if (_closed) throw StateError('Database session used after the request/job that opened it ended');
+  }
+
+  void _notRaised(String method) {
+    if (_raised > 0) {
+      throw StateError('Db.$method() inside Db.asSystem/Db.asPlatform would end the transaction the elevated '
+          'block runs in; call it before or after the block');
+    }
   }
 
   Future<Session> _session() async {
@@ -258,6 +267,7 @@ class Db {
   /// nothing (atomicity matters more than the connection). The next query opens a new transaction.
   static Future<void> release() async {
     final s = _lazy;
+    s?._notRaised('release');
     if (s?._opening == null) return;
     final clean = (await s!.execute('SELECT txid_current_if_assigned() IS NULL')).first[0] == true;
     if (clean) await s._finish();
@@ -276,7 +286,11 @@ class Db {
 
   /// COMMIT of what the current transaction has done so far, and return of the connection — before a transfer to storage.
   /// The rest of the request runs in a new transaction, so it is not atomic with what came before.
-  static Future<void> commit() async => _lazy?._finish();
+  static Future<void> commit() async {
+    final s = _lazy;
+    s?._notRaised('commit');
+    await s?._finish();
+  }
 
   /// Platform context: full view, explicitly. For places where a customer panel
   /// must reach platform data (e.g. platform settings) — better
@@ -290,19 +304,47 @@ class Db {
     return inContext(0, body);
   }
 
-  /// [body] with context [value] set locally in the transaction of session [s]; then the previous one returns.
+  /// [body] with context [value] set locally in the transaction of session [s]; then the request context returns.
   /// The context covers the whole request transaction: a query launched IN PARALLEL with [body] (Future.wait,
   /// un-awaited future) also sees the raised context — always `await` a raised block before the rest
-  /// (SECURITY.md, "Notes for app authors").
+  /// (SECURITY.md, "Notes for app authors"). Raised blocks of one session run one after another, so an
+  /// overlapping block cannot restore a context it read while another block was raised.
   static Future<T> _briefly<T>(DbSession s, String value, Future<T> Function() body) async {
-    final tx = await s._tx();
-    final before = (await tx.execute(r"SELECT current_setting('" + serviceGuc + r"', true)")).first[0] as String?;
-    await tx.execute(r"SELECT set_config('" + serviceGuc + r"', $1, true)", parameters: [value]);
-    try {
-      return await body();
-    } finally {
-      await tx.execute(r"SELECT set_config('" + serviceGuc + r"', $1, true)", parameters: [before ?? '']);
+    if (Zone.current[_raisedKey] case (final DbSession o, final String outer) when identical(o, s)) {
+      return outer == value ? body() : _raise(s, value, outer, body);
     }
+    final previous = s._raisedChain, turn = Completer<void>();
+    s._raisedChain = turn.future;
+    await previous;
+    try {
+      return await _raise(s, value, s._context!, body);
+    } finally {
+      turn.complete();
+    }
+  }
+
+  static const _raisedKey = #ignisRaised;
+
+  static Future<T> _raise<T>(DbSession s, String value, String restore, Future<T> Function() body) async {
+    final tx = await s._tx();
+    Future<void> set(String v) => tx.execute(r"SELECT set_config('" + serviceGuc + r"', $1, true)", parameters: [v]);
+    await set(value);
+    s._raised++;
+    final T result;
+    try {
+      result = await runZoned(body, zoneValues: {_raisedKey: (s, value)});
+    } catch (_) {
+      s._raised--;
+      // an aborted transaction refuses set_config; the body's error is the one to report, and the transaction
+      // (or the caller's savepoint, which also undoes the raised context) is rolled back anyway
+      try {
+        await set(restore);
+      } catch (_) {}
+      rethrow;
+    }
+    s._raised--;
+    await set(restore);
+    return result;
   }
 
   /// SYSTEM context (`ignis.service = '*'`): everything that by design sees every service
