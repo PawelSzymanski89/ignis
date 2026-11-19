@@ -1,5 +1,5 @@
 // ============================================================================
-//  timezones.dart — strefy czasowe IANA i harmonogramy (jednorazowo / codziennie / tygodniowo)
+//  timezones.dart — IANA time zones and schedules (once / daily / weekly)
 // ----------------------------------------------------------------------------
 //  The tzdata database is in the `timezone` package (no system files), so the result does not depend on
 //  the server's zone. Wall-clock time in a zone → a UTC instant; around clock changes, a time

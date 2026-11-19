@@ -82,22 +82,6 @@ class Schema {
     'user_packages': ['package_id'], // package holders; the unique index starts with username
   };
 
-  /// Uniqueness that makes sense only for some rows. A plain UNIQUE does not
-  /// tell "no number" from "the same number", and there may be many drafts without a number.
-  static const _partialIndexes = {
-  };
-
-  static Future<void> _createPartialIndexes(EntityMeta m, dynamic c) async {
-    for (final (name, columns, condition) in _partialIndexes[m.table] ?? const []) {
-      try {
-        await c.execute('CREATE UNIQUE INDEX IF NOT EXISTS "$name" '
-            'ON "${m.table}" ($columns) WHERE $condition');
-      } catch (e) {
-        stdout.writeln('  ! ${m.table}: indeks $name — $e');
-      }
-    }
-  }
-
   static Future<void> _indexes(EntityMeta m, dynamic c, String mode) async {
     if (mode == 'validate') return; // a missing index is not a schema mismatch
     final tableIndexCols = _tableIndexes[m.table] ?? const [];
@@ -235,7 +219,7 @@ class Schema {
       final policies = (r.first[1] as List).cast<String>().toSet();
       if (r.first[0] != true) errors.add('${m.table}: RLS disabled or without FORCE');
       if (!policies.containsAll({_policyName, _readPolicy}) || policies.length != 2) {
-        errors.add('${m.table}: polityki ${policies.join(', ')} (oczekiwane $_policyName, $_readPolicy)');
+        errors.add('${m.table}: policies ${policies.join(', ')} (expected $_policyName, $_readPolicy)');
       } else if (!(r.first[2] as List).every((o) => o == w.$3)) {
         errors.add('${m.table}: policy conditions do not match the code (fingerprint ≠ ${w.$3})');
       }
@@ -315,7 +299,6 @@ class Schema {
         await c.execute('CREATE TABLE "${m.table}" ($columns$uniqueClause)');
         stdout.writeln('  + table ${m.table} (${m.fields.length} columns)');
         await _indexes(m, c, mode);
-        if (mode != 'validate') await _createPartialIndexes(m, c);
         continue;
       }
 
@@ -354,7 +337,7 @@ class Schema {
         try {
           await c.execute('ALTER TABLE "${m.table}" ADD '
               'UNIQUE (${u.map((k) => '"$k"').join(', ')})');
-          stdout.writeln('  + unikat ${m.table} $def');
+          stdout.writeln('  + unique ${m.table} $def');
         } catch (e) {
           // the data already breaks the new constraint — a decision for a human
           stdout.writeln('  ! ${m.table}: cannot add $def — $e');

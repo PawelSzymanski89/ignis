@@ -787,7 +787,7 @@ static String errorDescription(int code) => switch (code) {
       final key = f.redisKey(cls, token);
       try {
         if (f.isSession) {
-          await Redis.setEx(key, _ser(cur), Sessions.ttlSeconds); // TTL = sesja
+          await Redis.setEx(key, _ser(cur), Sessions.ttlSeconds); // TTL = session
         } else {
           await Redis.set(key, _ser(cur)); // global, no TTL
         }
@@ -802,7 +802,7 @@ static String errorDescription(int code) => switch (code) {
     if (t == bool) return raw == 'true';
     if (t == int) return int.tryParse(raw) ?? 0;
     if (t == double) return double.tryParse(raw) ?? 0.0;
-    return raw; // String i reszta
+    return raw; // String and the rest
   }
 
   /// Serializes a field value to a string (Redis stores strings).

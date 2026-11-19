@@ -1,5 +1,5 @@
 // ============================================================================
-//  settings_page.dart — „/admin/settings" (Konfiguracja)
+//  settings_page.dart — "/admin/settings" (Configuration)
 // ----------------------------------------------------------------------------
 //  Sections described declaratively: the "General" core (engine/config.dart) plus
 //  app sections from `Ignis.start(settingsSections:)`. Adding a field there = a field

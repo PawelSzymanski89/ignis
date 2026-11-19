@@ -1,7 +1,7 @@
 // ============================================================================
 //  jwt.dart — RS256 JWT signature with a PEM private key (Google service accounts etc.)
 // ----------------------------------------------------------------------------
-//  Przyjmuje PEM PKCS#8 („PRIVATE KEY”) i PKCS#1 („RSA PRIVATE KEY”).
+//  Accepts PEM PKCS#8 ("PRIVATE KEY") and PKCS#1 ("RSA PRIVATE KEY").
 //  RSASSA-PKCS1-v1_5 is deterministic — the same key and content give the same signature.
 // ============================================================================
 

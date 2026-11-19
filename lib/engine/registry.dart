@@ -22,7 +22,7 @@ import 'session.dart' show Sessions;
 /// Description of a field marked @Synced / @SessionSynced (for hydrate/persist from Redis).
 class SyncedField {
   final String name;      // field name
-  final bool isSession;   // true = @SessionSynced (per-user, TTL sesji); false = @Synced (globalne)
+  final bool isSession;   // true = @SessionSynced (per-user, session TTL); false = @Synced (global)
   final Type type;        // field type (bool/int/double/String) — for (de)serialization
   SyncedField(this.name, this.isSession, this.type);
 
@@ -36,7 +36,7 @@ class PageRoute {
   /// Mirror of the page class — used to create an instance per request.
   final ClassMirror classMirror;
 
-  /// Adnotacja @Page (route/template/redirect/requires).
+  /// The @Page annotation (route/template/redirect/requires).
   final Page meta;
 
   /// @Synced / @SessionSynced fields of this class (detected once, at startup).

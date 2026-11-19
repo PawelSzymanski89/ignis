@@ -210,7 +210,7 @@ class Orm {
     return [for (final row in res) _hydrate(meta, row.toColumnMap()) as T];
   }
 
-  // --- pomocnicze -----------------------------------------------------------
+  // --- helpers ----------------------------------------------------------------
 
   /// Builds an entity instance from a column→value map (mirrors newInstance + setField).
   static Object _hydrate(EntityMeta meta, Map<String, dynamic> map) {

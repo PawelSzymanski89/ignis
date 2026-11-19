@@ -174,7 +174,7 @@ class Ignis {
       try {
         await Redis.releaseLocks(node);
       } catch (e) {
-        stderr.writeln('Ignis: zwolnienie blokad — $e');
+        stderr.writeln('Ignis: releasing locks — $e');
       }
       try {
         await Db.close();

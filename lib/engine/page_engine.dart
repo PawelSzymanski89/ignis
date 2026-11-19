@@ -103,7 +103,7 @@ abstract class PageEngine {
   /// Response Content-Type. HTML by default (render); json()/file() change it.
   String _contentType = 'text/html; charset=utf-8';
 
-  /// Kod HTTP odpowiedzi.
+  /// HTTP status code of the response.
   int _status = 200;
 
   /// Redirect target (when set, the engine returns 302).
@@ -225,11 +225,11 @@ abstract class PageEngine {
       {String path = '/', bool httpOnly = true, bool secure = true, int? maxAge}) {
     // the browser rejects __Host- without Secure or with Path≠/ — the session would silently disappear
     if (name.startsWith('__Host-') && (!secure || path != '/')) {
-      throw ArgumentError('Ciasteczko $name wymaga Secure i Path=/');
+      throw ArgumentError('Cookie $name requires Secure and Path=/');
     }
     final b = StringBuffer('$name=$value; Path=$path; SameSite=Lax');
     if (httpOnly) b.write('; HttpOnly');
-    if (secure) b.write('; Secure'); // HTTPS only (behind Caddy TLS)
+    if (secure) b.write('; Secure'); // HTTPS only (TLS at the reverse proxy)
     if (maxAge != null) b.write('; Max-Age=$maxAge');
     _cookiesOut.add(b.toString());
   }
@@ -301,7 +301,7 @@ abstract class PageEngine {
     return false;
   }
 
-  /// Surowe bajty odpowiedzi (obrazek, PDF) — omija bufor tekstowy.
+  /// Raw response bytes (image, PDF) — bypasses the text buffer.
   void saveBytes(List<int> data) => _bytes = data;
 
   /// Stream of response bytes — the engine copies it to the client chunk by chunk.
@@ -320,7 +320,7 @@ abstract class PageEngine {
 
   bool _api(int code, [Object? data]) {
     _status = code;
-    if (data != null) json(data); // ustawia JSON + Content-Type
+    if (data != null) json(data); // sets JSON + Content-Type
     return false; // short-circuit
   }
 

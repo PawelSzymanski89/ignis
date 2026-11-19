@@ -18,7 +18,7 @@ import 'package:postgres/postgres.dart' show Sql;
 import 'db.dart';
 import 'redis.dart';
 
-/// Dane sesji zalogowanego usera.
+/// Session data of a signed-in user.
 class Session {
   Session(this.username, [this.epoch = 0]);
   final String username;
@@ -98,7 +98,7 @@ class Sessions {
     try {
       final v = jsonDecode(u);
       if (v is List && v.length == 2 && v[0] is String && v[1] is int) return Session(v[0] as String, v[1] as int);
-    } on FormatException {/* sesja sprzed epoki: sam login */}
+    } on FormatException {/* a session from before epochs: just the login */}
     return Session(u);
   }
 

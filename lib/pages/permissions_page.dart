@@ -241,7 +241,7 @@ class PermissionsPage extends AdminPage {
     return back('/admin/permissions', message: t('ignis.msg.permissions.account_deleted', {'login': u}));
   }
 
-  // ─────────────── pomocnicze ───────────────
+  // ─────────────── helpers ───────────────
 
   /// Back-office account within this page's scope (service — its own, platform — any), or null.
   Future<(String, int, bool, int)?> _account(String u) async {

@@ -32,7 +32,7 @@ import 'package:jinja/reflection.dart' show getAttribute;
 import 'engine.dart';
 import 'ignis.dart';
 
-/// Grosze → „123.45”.
+/// Cents → "123.45".
 String money(int cents) => (cents / 100).toStringAsFixed(2);
 
 /// Trusted HTML — the only way for markup from Dart to enter the page without escaping.

@@ -76,7 +76,7 @@ class UserPackage {
   String package_id = '';
 }
 
-/// Pojedyncze nadpisanie: allow=true → grant `+`, allow=false → deny `−`.
+/// A single override: allow=true → grant `+`, allow=false → deny `−`.
 @Entity('user_permissions', unique: [
   ['username', 'permission']
 ])

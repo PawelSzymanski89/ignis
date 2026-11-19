@@ -45,7 +45,7 @@ class TenantContext {
   bool get platform => service == 0;
 
   static const platformContext = TenantContext(
-      service: 0, name: 'Platforma', domain: '', panel: true, active: true);
+      service: 0, name: 'Platform', domain: '', panel: true, active: true);
 }
 
 class Tenants {
@@ -82,7 +82,7 @@ class Tenants {
     if (systemDomains.contains(h)) {
       // Under the system domain the platform panel works ALSO without the `admin.` prefix.
       return TenantContext(
-          service: 0, name: 'Platforma', domain: h, panel: true, active: true);
+          service: 0, name: 'Platform', domain: h, panel: true, active: true);
     }
 
     final u = await _find(h);

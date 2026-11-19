@@ -1,5 +1,5 @@
 // ============================================================================
-//  dashboard_page.dart — „/" root dashboard panelu
+//  dashboard_page.dart — "/" root dashboard of the panel
 // ----------------------------------------------------------------------------
 //  Back-office start page. It extends AdminPage, so it does not write
 //  authorization — it only declares requires in @Page, and the realm and permissions are checked

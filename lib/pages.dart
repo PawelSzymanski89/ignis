@@ -1,5 +1,5 @@
 // ============================================================================
-//  pages.dart — BARREL wszystkich stron
+//  pages.dart — BARREL of all pages
 // ----------------------------------------------------------------------------
 //  ⚠️ CRUCIAL for reflection: dart:mirrors sees only REACHABLE classes
 //  (loaded into the program). That is why EVERY page class has to be imported here,

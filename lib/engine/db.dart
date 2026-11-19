@@ -438,7 +438,7 @@ class Db {
         'disable' => SslMode.disable,
         'require' => SslMode.require,
         'verify-full' => SslMode.verifyFull,
-        final x => throw StateError('IGNIS_DB_SSL=$x — dozwolone disable | require | verify-full'),
+        final x => throw StateError('IGNIS_DB_SSL=$x — allowed: disable | require | verify-full'),
       };
 
   /// Checks a login: fetches the user's (bcrypt) hash and verifies the password.

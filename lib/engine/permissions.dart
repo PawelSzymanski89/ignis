@@ -144,7 +144,7 @@ class Permissions {
     };
   }
 
-  /// Pakiety WIELU kont jednym zapytaniem.
+  /// Packages of MANY accounts in one query.
   static Future<Map<String, List<String>>> usersPackages(List<String> logins) async {
     if (logins.isEmpty) return const {};
     final r = await (await Db.connect()).execute(

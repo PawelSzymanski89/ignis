@@ -8,8 +8,8 @@
 //  Every call has a 2 s limit. After an error the connection is dropped and the next
 //  call opens a new one — without that a Redis restart meant restarting the nodes.
 //
-//  Konfiguracja env: IGNIS_REDIS_HOST (wymagane), IGNIS_REDIS_PORT (6379),
-//                    IGNIS_REDIS_PASS, IGNIS_REDIS_TLS (1 = TLS).
+//  Environment: IGNIS_REDIS_HOST (required), IGNIS_REDIS_PORT (6379),
+//               IGNIS_REDIS_PASS, IGNIS_REDIS_TLS (1 = TLS).
 // ============================================================================
 
 import 'dart:async';
@@ -125,7 +125,7 @@ class Redis {
     } while (cursor != '0');
   }
 
-  /// DEL wielu kluczy jednym poleceniem.
+  /// DEL of many keys in one command.
   static Future<void> delMany(List<String> keys) async {
     if (keys.isNotEmpty) await cmd(['DEL', ...keys]);
   }
@@ -133,7 +133,7 @@ class Redis {
   /// SADD key member.
   static Future<void> sadd(String key, String member) => cmd(['SADD', key, member]);
 
-  /// SMEMBERS key → lista.
+  /// SMEMBERS key → list.
   static Future<List<String>> smembers(String key) async =>
       ((await cmd(['SMEMBERS', key])) as List? ?? const []).cast<String>();
 }
