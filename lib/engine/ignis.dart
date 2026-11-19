@@ -21,7 +21,6 @@ import 'package:crypto/crypto.dart';
 import 'db.dart';
 import 'audit_log.dart';
 import 'engine.dart';
-import 'client_ip.dart';
 import 'config.dart';
 import 'storage.dart';
 import 'orm.dart';
@@ -58,6 +57,40 @@ class Ignis {
 
   /// Where "Back" on the error page leads (an app with its own panel gives its dashboard).
   static String errorBackUrl = '/admin';
+
+  /// Why the node must not start with this `IGNIS_TRUSTED_PROXIES`, or null. Unset is refused: behind a
+  /// proxy that nobody declared, every client has the proxy address — sign-in limits lock everyone out
+  /// at once and the audit log records only the proxy. `none` states that there is no proxy.
+  static String? trustedProxiesError(Map<String, String> env) {
+    final v = (env['IGNIS_TRUSTED_PROXIES'] ?? '').trim();
+    if (v.isEmpty) {
+      return 'IGNIS_TRUSTED_PROXIES is not set — the node will not start. Behind a reverse proxy set it to the '
+          "proxy's IPs/CIDRs (comma-separated); with clients connecting directly set IGNIS_TRUSTED_PROXIES=none.";
+    }
+    if (v != 'none' && v.split(',').any((s) => s.trim() == 'none')) {
+      return 'IGNIS_TRUSTED_PROXIES=$v — `none` cannot be combined with addresses.';
+    }
+    return null;
+  }
+
+  /// Warnings for backends reached outside loopback with TLS off: credentials and data cross the network
+  /// in plaintext unless the network itself is trusted.
+  static List<String> backendTlsWarnings(Map<String, String> env) {
+    bool remote(String? host) {
+      if (host == null || host.isEmpty || host == 'localhost' || host.startsWith('/')) return false;
+      return !(InternetAddress.tryParse(host)?.isLoopback ?? false);
+    }
+
+    String warn(String what, String host, String fix) =>
+        'Ignis WARNING: $what at $host is outside loopback and TLS is off — set $fix, unless the network is private and trusted.';
+    return [
+      if (remote(env['IGNIS_DB_HOST']) && (env['IGNIS_DB_SSL'] ?? 'disable') == 'disable')
+        warn('PostgreSQL', env['IGNIS_DB_HOST']!, 'IGNIS_DB_SSL=verify-full'),
+      if (remote(env['IGNIS_REDIS_HOST']) && env['IGNIS_REDIS_TLS'] != '1')
+        warn('Redis', env['IGNIS_REDIS_HOST']!, 'IGNIS_REDIS_TLS=1'),
+      if (remote(env['IGNIS_S3_HOST']) && env['IGNIS_S3_SSL'] != '1') warn('S3', env['IGNIS_S3_HOST']!, 'IGNIS_S3_SSL=1'),
+    ];
+  }
 
   /// Node startup. [templates] — app template directories (they win over the package).
   /// [appAssets] — app static directories under `/assets/`, searched before `IGNIS_ASSETS`.
@@ -96,6 +129,9 @@ class Ignis {
       throw StateError('No IGNIS_KEY (64 random hex chars — e.g. openssl rand -hex 32) — the node will not start, because '
           'secrets in settings would reach the database as plain text');
     }
+    final proxiesError = trustedProxiesError(env);
+    if (proxiesError != null) throw StateError(proxiesError);
+    backendTlsWarnings(env).forEach(stdout.writeln);
     if (Crypto.previousKeyInvalid) {
       throw StateError('IGNIS_KEY_PREVIOUS is set but is not a valid key (64 random hex chars) — the node will not start, '
           'because secrets not yet re-encrypted by bin/rekey.dart would be unreadable');
@@ -126,10 +162,6 @@ class Ignis {
     // an idle connection is released after 30 s (120 by default) — fewer hanging sockets
     server.idleTimeout = const Duration(seconds: 30);
     stdout.writeln('Ignis listening on ${server.address.address}:$port');
-    if (trustedProxies.isEmpty) {
-      stdout.writeln('Ignis: IGNIS_TRUSTED_PROXIES empty — X-Forwarded-For ignored. Behind a reverse proxy set it '
-          'to the proxy address, otherwise sign-in limits and the audit log see everyone as one address.');
-    }
     final assets = Ignis.assetDirs = [...appAssets, env['IGNIS_ASSETS'] ?? 'web/assets', Renderer.packageAssets];
     final shutdown = Shutdown();
     var closingNow = false;

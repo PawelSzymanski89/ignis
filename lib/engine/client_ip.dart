@@ -9,12 +9,11 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-/// Trusted proxies from `IGNIS_TRUSTED_PROXIES` (IPs or CIDRs, comma-separated).
-final List<String> trustedProxies = (Platform.environment['IGNIS_TRUSTED_PROXIES'] ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .where((s) => s.isNotEmpty)
-    .toList();
+/// Trusted proxies from `IGNIS_TRUSTED_PROXIES` (IPs or CIDRs, comma-separated; `none` — no proxy).
+final List<String> trustedProxies = parseTrustedProxies(Platform.environment['IGNIS_TRUSTED_PROXIES'] ?? '');
+
+List<String> parseTrustedProxies(String raw) =>
+    raw.trim() == 'none' ? const [] : raw.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
 
 /// Warning for the operator when [xff] came from a proxy on a private/loopback network and [trusted] is empty:
 /// all clients then have the proxy address, so 30 bad sign-in attempts lock sign-in for everyone,

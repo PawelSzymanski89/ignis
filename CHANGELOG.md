@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+- `IGNIS_TRUSTED_PROXIES` is required: unset or empty, the node refuses to start with a message saying what
+  to set. Behind a reverse proxy set the proxy's IPs/CIDRs; with clients connecting directly set
+  `IGNIS_TRUSTED_PROXIES=none` (the previous default behaviour).
+
 ## 0.1.1 — 2026-11-18
 
 ### Added

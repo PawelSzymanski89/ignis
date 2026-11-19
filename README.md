@@ -174,8 +174,8 @@ IGNIS_DB_HOST=127.0.0.1
 IGNIS_DB_PASS=$(openssl rand -base64 18)
 IGNIS_REDIS_HOST=127.0.0.1
 IGNIS_ADMIN_PASS=$(openssl rand -base64 18)
-# behind a reverse proxy: its address (IP/CIDR). Unset = X-Forwarded-For ignored, every client looks
-# like the proxy — login limits then lock out everyone at once, and the log records only the proxy IP
+# required: behind a reverse proxy its address (IP/CIDR), `none` when clients connect directly. A wrong
+# value makes every client look like the proxy — login limits lock out everyone, the log sees one IP
 IGNIS_TRUSTED_PROXIES=127.0.0.1
 EOF
 chmod 600 .env
@@ -385,7 +385,7 @@ that transaction commits and its connection has gone back to the pool.
 ## Configuration
 
 All configuration comes from environment variables read by the engine. The required ones are `IGNIS_KEY`,
-`IGNIS_DOMAINS`, `IGNIS_DB_HOST`, `IGNIS_DB_PASS` and `IGNIS_REDIS_HOST`.
+`IGNIS_DOMAINS`, `IGNIS_DB_HOST`, `IGNIS_DB_PASS`, `IGNIS_REDIS_HOST` and `IGNIS_TRUSTED_PROXIES`.
 
 <details>
 <summary><b>All environment variables</b></summary>
@@ -410,7 +410,7 @@ All configuration comes from environment variables read by the engine. The requi
 | `IGNIS_NODE` | `node` | node name in logs, locks and the audit log |
 | `IGNIS_SCHEMA` | `update` | `update` creates tables and columns, `validate` and `none` only check. Serving nodes: `validate` on a runtime role without table ownership ([SECURITY.md](SECURITY.md#runtime-database-role)) |
 | `IGNIS_ASSETS` | `web/assets` | directory with the theme's static files (`/assets/…`) |
-| `IGNIS_TRUSTED_PROXIES` | — | IPs/CIDRs whose `X-Forwarded-For` is trusted |
+| `IGNIS_TRUSTED_PROXIES` | **required** | IPs/CIDRs whose `X-Forwarded-For` is trusted; `none` = no reverse proxy. Unset or empty stops the node |
 | `IGNIS_TIMEOUT_S` | `120` | whole-request deadline in seconds |
 | `IGNIS_SHORT_TIMEOUT_S` | `15` | deadline for routes without `maxBody` (plain forms) |
 | `IGNIS_UPLOAD_BUDGET_MB` | `64` | total size of multipart bodies buffered at once |
@@ -493,9 +493,8 @@ English; a Polish translation of the panel ships in `i18n/pl.json`. See the [cha
 Open items already recorded in [SECURITY.md](SECURITY.md#known-gaps-and-debt) — directions, not promises:
 
 - **Key rotation with a key id** — today rotation is two-key (`IGNIS_KEY_PREVIOUS` + `bin/rekey.dart`), ciphertexts carry no key id.
-- **Request-concurrency limit** — one isolate per node, no backpressure today.
 - **Open decisions:** tenant subdomains vs. a separate registrable domain, per-tenant namespacing of staff
-  logins, and whether an unset `IGNIS_TRUSTED_PROXIES` should block start-up.
+  logins, and a breached-password check.
 - **API stabilisation** of `Ignis.start`, `@Page` and `@Entity` towards 1.0.
 
 ## Contributing

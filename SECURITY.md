@@ -187,7 +187,7 @@ Still delegated to the deployment: TLS termination and a trusted reverse proxy. 
 must not be exposed outside the application instances. When backend traffic leaves the private network,
 enable TLS with certificate verification: `IGNIS_DB_SSL=verify-full` (`require` encrypts without
 verifying), `IGNIS_S3_SSL=1`, `IGNIS_REDIS_TLS=1` (system CAs). An unknown `IGNIS_DB_SSL` value aborts
-start-up.
+start-up. The node warns at start-up for every backend host outside loopback with TLS off.
 
 ### Sample reverse-proxy configuration
 
@@ -216,8 +216,10 @@ server {
 ```
 
 Set `IGNIS_TRUSTED_PROXIES` to the proxy address so the node accepts `X-Forwarded-For` from it and
-nowhere else. Without it every client looks like the proxy: the login limits then lock out everyone at
-once and the audit log records only the proxy IP (the node warns on start-up and on the first such request).
+nowhere else. Otherwise every client looks like the proxy: the login limits then lock out everyone at
+once and the audit log records only the proxy IP. **The node refuses to start with the variable unset or
+empty**; set `IGNIS_TRUSTED_PROXIES=none` when clients connect directly (the node then still warns on the
+first `X-Forwarded-For` from a private address).
 
 The proxy **must set `X-Forwarded-For`** on every forwarded request. `/health` answers only the loopback
 and `IGNIS_TRUSTED_PROXIES` *without* that header (the proxy's own probe); a proxy that forwards client
@@ -259,7 +261,7 @@ requests without it makes the health check — with node and backend state — p
 |---|---|---|
 | **coarse request-concurrency limit** | one isolate per node; above `IGNIS_MAX_INFLIGHT` (512) requests in flight, or when no pool connection frees up within 5 s, the node answers `503` with `Retry-After`; API bodies have no shared byte budget (up to 8 MB each after gzip) | `engine/engine.dart` (`Engine.guarded`), `engine/db.dart` |
 | **pagination only where `Listing` is used** | pages without it load everything | panel |
-| **backend TLS is off by default and not mutually authenticated** | relies on a private network unless `IGNIS_DB_SSL` / `IGNIS_S3_SSL` / `IGNIS_REDIS_TLS` are set | deployment |
+| **backend TLS is off by default and not mutually authenticated** | relies on a private network unless `IGNIS_DB_SSL` / `IGNIS_S3_SSL` / `IGNIS_REDIS_TLS` are set; a non-loopback host without TLS is warned about at start-up | deployment |
 | **one database role by default** | RLS holds via `FORCE`, but if nodes run on the table owner a compromised node could `ALTER`/`DROP` policies; splitting owner and runtime role is a deployment step ([Runtime database role](#runtime-database-role)), warned about at start-up | deployment, `engine/schema.dart` |
 
 ### Open decisions (owner)
@@ -268,7 +270,7 @@ requests without it makes the health check — with node and backend state — p
 |---|---|
 | **tenant subdomains** | fronts and panels on system subdomains share an origin / are same-site with the platform panel — a Public Suffix List entry or a separate registrable domain |
 | **staff login namespace** | logins are global (existence oracle, squatting); per-tenant namespacing as for customer accounts is the alternative |
-| **unset `IGNIS_TRUSTED_PROXIES`** | today a warning; whether it should block start-up, and whether to add a breached-password check |
+| **breached-password check** | whether to check new panel passwords against a breached-password list |
 
 ## Third-party notes
 
