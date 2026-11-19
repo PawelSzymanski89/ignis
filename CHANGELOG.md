@@ -9,6 +9,8 @@
   bumps the epoch in the same statement and cleans Redis up after the transaction ends, so a session
   created with the old password in parallel, or one whose Redis key survived, is rejected. Customer sessions
   stored before this change have no epoch and are rejected — customers sign in again once.
+- The `striptags` template filter no longer unescapes its result: Jinja's version turned an escaped
+  `<script>` from the model back into raw markup. Entities stay escaped; trusted `Html` still loses its tags.
 
 ### Breaking
 

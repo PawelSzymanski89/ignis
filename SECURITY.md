@@ -147,9 +147,12 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
 - **XSS**: Jinja 0.6.7 has **no autoescape**, so escaping is done by `Renderer` (`engine/render.dart`)
   — every String in the model, in nested maps and lists, and object fields read via mirrors; at output, any
   other value (objects with their own `toString()`, exceptions, records), also inside a printed collection and
-  in the `string` / `join` filters. Trusted HTML passes only as `Html(...)`. Known limit: the `~` operator
-  concatenates through `toString()` before escaping, so `{{ obj ~ 'x' }}` prints the object's `toString()`
-  raw — pass strings (escaped by the model) to `~`, or format the value in Dart. **User data never goes into
+  in the `string` / `join` filters. `striptags` is Ignis' own: Jinja's version unescapes its result, which
+  turned an escaped `<script>` from the model back into markup. Trusted HTML passes only as `Html(...)`.
+  Known limits: the `~` operator concatenates through `toString()` before escaping, so `{{ obj ~ 'x' }}` prints
+  the object's `toString()` raw — pass strings (escaped by the model) to `~`, or format the value in Dart; and
+  `replace` works on the escaped text, so `{{ x|replace('&lt;', '<') }}` rebuilds markup — never replace
+  entities with characters. **User data never goes into
   JavaScript**: confirmations use `data-*`, and the brand reaches JS through `document.body.dataset.brand`,
   because an HTML attribute is decoded before the JS engine sees it.
 - **CSP**: both layouts ship a default `Content-Security-Policy` (`script-src 'self'`, `object-src

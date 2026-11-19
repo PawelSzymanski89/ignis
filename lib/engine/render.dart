@@ -13,7 +13,8 @@
 //    • every String in the model (also in nested Map/List) — in `sanitize()`,
 //    • object fields read through mirrors (`p.name`) — in `_attribute()`,
 //    • anything else that reaches `{{ }}` (own toString(), exceptions, records), also inside collections
-//      and in the `string`/`join` filters — in `_finalize()`.
+//      and in the `string`/`join` filters — in `_finalize()`,
+//    • `striptags` is replaced: jinja's own unescapes its result.
 //  The `~` operator concatenates through toString() before `_finalize()`: `{{ obj ~ 'x' }}` with an object
 //  whose toString() holds markup prints it raw (SECURITY.md).
 //  Trusted HTML is inserted deliberately, wrapped in `Html('<b>…</b>')` — only
@@ -83,7 +84,7 @@ class Renderer {
         autoReload: false,
         getAttribute: _attribute,
         finalize: _finalize,
-        filters: {'string': _string, 'join': _join},
+        filters: {'string': _string, 'join': _join, 'striptags': _stripTags},
       );
 
   /// Last line of defence at every `{{ }}`: values `sanitize()` did not reach print through
@@ -103,6 +104,17 @@ class Renderer {
   /// `|string` and `|join` of jinja call `toString()` on objects and return a String, which [_finalize] trusts.
   static String _string(Object? v) => '${_safe(v)}';
   static String _join(Iterable<Object?> values, [String delimiter = '']) => values.map(_safe).join(delimiter);
+
+  /// jinja's `striptags` unescapes its result, turning an escaped `<script>` from the model back into markup.
+  /// Here entities stay as they are, and a `<`/`>` left over from a broken tag is escaped.
+  static String _stripTags(Object? v) => '${_safe(v)}'
+      .replaceAll(_tags, '')
+      .split(_spaces)
+      .where((w) => w.isNotEmpty)
+      .join(' ')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+  static final _tags = RegExp('(<!--.*?-->|<[^>]*>)'), _spaces = RegExp(r'\s+');
 
   /// `x.y` in a template. Maps are read directly (no mirrors and no
   /// NoSuchMethodError exception on every dot), object fields through reflection — and those
