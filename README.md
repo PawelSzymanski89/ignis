@@ -419,7 +419,7 @@ All configuration comes from environment variables read by the engine. The requi
 | `IGNIS_TIMEOUT_S` | `120` | whole-request deadline in seconds |
 | `IGNIS_SHORT_TIMEOUT_S` | `15` | deadline for routes without `maxBody` (plain forms) |
 | `IGNIS_UPLOAD_BUDGET_MB` | `64` | total size of multipart bodies buffered at once |
-| `IGNIS_API_BODY_BUDGET_MB` | `64` | total size of `api: true` bodies held at once (on the wire and after gzip); above it `503` |
+| `IGNIS_API_BODY_BUDGET_MB` | `64` | total size of `api: true` bodies held at once (on the wire and after gzip); above it `503`; not an integer ≥ 1 = no start |
 | `IGNIS_MAX_INFLIGHT` | `512` | requests handled at once; above it `503` with `Retry-After` (logged, at most one line a second); a value other than an integer ≥ 1 stops the node |
 | `IGNIS_BCRYPT_THREADS` | CPU count | concurrent bcrypt isolates |
 | `IGNIS_BIND` | `127.0.0.1` | listen address (`0.0.0.0` or a private address when the proxy is on another host) |

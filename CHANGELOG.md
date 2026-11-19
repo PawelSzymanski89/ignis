@@ -55,7 +55,8 @@ Hardening follow-up to 0.2.0 (HARD-L.13). Details in `SECURITY.md`.
 
 - `IGNIS_API_BODY_BUDGET_MB` (64 MB by default): bodies of `api: true` routes share one node budget, counted
   as they are read on the wire and again as gzip inflates them, released when the request ends (also on a
-  dropped connection). Over the budget the route answers `503` with `Retry-After`.
+  dropped connection or when the request deadline ends a hanging body). Over the budget the route answers `503`
+  with `Retry-After`. A value other than an integer ≥ 1 stops the node at start-up.
 - `IGNIS_REQUIRE_RUNTIME_ROLE=1` (opt-in): a node whose database role owns any engine table refuses to start
   instead of only warning — checked before the schema sync, so a refused node runs no DDL; any value other than
   empty or `1` also refuses to start. `tool/runtime_role.sql` holds the owner + runtime role recipe from `SECURITY.md`.

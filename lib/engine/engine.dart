@@ -172,7 +172,16 @@ class Engine {
 
   /// Total bytes of `api: true` bodies held at once (`IGNIS_API_BODY_BUDGET_MB`, 64 MB by default), on the wire and
   /// after gzip inflation, reserved as they arrive; above it 503 with `Retry-After`.
-  static int apiBodyBudget = (int.tryParse(Platform.environment['IGNIS_API_BODY_BUDGET_MB'] ?? '') ?? 64) * 1024 * 1024;
+  /// [Ignis.start] reads it at start-up, so a bad value stops the node.
+  static int apiBodyBudget = parseApiBodyBudget(Platform.environment['IGNIS_API_BODY_BUDGET_MB']);
+
+  /// `IGNIS_API_BODY_BUDGET_MB` in bytes: unset → 64 MB; anything but an integer ≥ 1 stops the node.
+  static int parseApiBodyBudget(String? value) {
+    if (value == null) return 64 * 1024 * 1024;
+    final n = int.tryParse(value.trim());
+    if (n == null || n < 1) throw StateError('IGNIS_API_BODY_BUDGET_MB=$value — must be an integer ≥ 1 (64 by default)');
+    return n * 1024 * 1024;
+  }
   static int _apiBodyInFlight = 0;
 
   /// Most fields in an x-www-form-urlencoded form (like [Upload.maxParts] for multipart).

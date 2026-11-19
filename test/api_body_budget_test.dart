@@ -1,6 +1,7 @@
 // HARD-L.13.4: bodies of `api: true` routes share one node budget (IGNIS_API_BODY_BUDGET_MB), like multipart uploads:
-// bytes read on the wire and inflated from gzip are reserved as they come, released when the body is read (also when
-// the client drops the connection). Over the budget → 503 with Retry-After. No database (technical + noDb route).
+// bytes read on the wire and inflated from gzip are reserved as they come, released when the request ends (also when
+// the client drops the connection or the request deadline ends a hanging body). Over the budget → 503 with Retry-After;
+// a value other than an integer ≥ 1 stops the node. No database (technical + noDb route).
 // Run: dart run test/api_body_budget_test.dart
 import 'dart:async';
 import 'dart:convert';
@@ -68,8 +69,8 @@ Future<void> main(List<String> args) async {
   final b = await start((1.5 * mb).round(), (1.2 * mb).round());
   await settle();
   final c = await post(List.filled(mb, 0x61));
-  check('a third body over the shared budget → 503', status(c) == 503 || status(c) == -1);
-  if (c.isNotEmpty) check('…with Retry-After', c.toLowerCase().contains('retry-after:'));
+  check('a third body over the shared budget → 503', status(c) == 503);
+  check('…with Retry-After', c.toLowerCase().contains('retry-after:'));
   final ra = await finish(a, List.filled((0.3 * mb).round(), 0x61));
   final rb = await finish(b, List.filled((0.3 * mb).round(), 0x61));
   check('the two bodies within the budget finish normally', status(ra) == 200 && status(rb) == 200);
@@ -85,10 +86,36 @@ Future<void> main(List<String> args) async {
   final bomb = gzip.encode(List.filled(4 * mb - 10, 0x61));
   final held = await start((1.5 * mb).round(), (1.2 * mb).round());
   await settle();
-  check('inflated gzip bytes count against the budget too → 503', status(await post(bomb, gz: true)) == 503);
+  final g = await post(bomb, gz: true);
+  check('inflated gzip bytes count against the budget too → 503', status(g) == 503);
+  check('…with Retry-After', g.toLowerCase().contains('retry-after:'));
   check('…small on the wire', bomb.length < 64 * 1024);
   await finish(held, List.filled((0.3 * mb).round(), 0x61));
   check('IGNIS_API_BODY_BUDGET_MB is read at start-up', Engine.apiBodyBudget == 3 * mb);
+
+  // a client that stops sending and keeps the connection open: the request deadline ends it and frees its share
+  Engine.requestDeadline = const Duration(seconds: 2);
+  final hung = await start((2.5 * mb).round(), 2 * mb);
+  await settle();
+  check('while the body hangs its share is held (1.5 MB → 503)', status(await post(List.filled((1.5 * mb).round(), 0x61))) == 503);
+  final closed = hung.drain<void>().then((_) => true, onError: (_) => true).timeout(const Duration(seconds: 5), onTimeout: () => false);
+  check('the deadline closes the hanging connection', await closed);
+  await settle();
+  check('…and releases its share (2.9 MB → 200)', status(await post(List.filled((2.9 * mb).round(), 0x61))) == 200);
+  hung.destroy();
+
+  Object? e;
+  for (final bad in ['0', '-1', 'lots', '']) {
+    e = null;
+    try {
+      Engine.parseApiBodyBudget(bad);
+    } catch (x) {
+      e = x;
+    }
+    check('IGNIS_API_BODY_BUDGET_MB=$bad → StateError', e is StateError && '$e'.contains('IGNIS_API_BODY_BUDGET_MB'));
+  }
+  check('IGNIS_API_BODY_BUDGET_MB unset → 64 MB, " 8 " → 8 MB',
+      Engine.parseApiBodyBudget(null) == 64 * mb && Engine.parseApiBodyBudget(' 8 ') == 8 * mb);
   await server.close(force: true);
   print('\nALL PASSED');
   exit(0);

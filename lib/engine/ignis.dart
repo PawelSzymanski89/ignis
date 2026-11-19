@@ -140,6 +140,7 @@ class Ignis {
           'secrets in settings would reach the database as plain text');
     }
     Engine.maxInFlight = Engine.parseMaxInFlight(env['IGNIS_MAX_INFLIGHT']);
+    Engine.apiBodyBudget = Engine.parseApiBodyBudget(env['IGNIS_API_BODY_BUDGET_MB']);
     final proxiesError = trustedProxiesError(env);
     if (proxiesError != null) throw StateError(proxiesError);
     backendTlsWarnings(env).forEach(stdout.writeln);

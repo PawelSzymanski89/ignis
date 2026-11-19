@@ -53,6 +53,9 @@ Future<void> main(List<String> a) async {
 
   out = await start({'IGNIS_TRUSTED_PROXIES': 'none', 'IGNIS_MAX_INFLIGHT': '0'});
   check('IGNIS_MAX_INFLIGHT=0 stops the start', out.contains('START FAILED') && out.contains('IGNIS_MAX_INFLIGHT'));
+  out = await start({'IGNIS_TRUSTED_PROXIES': 'none', 'IGNIS_API_BODY_BUDGET_MB': '0'});
+  check('IGNIS_API_BODY_BUDGET_MB=0 stops the start',
+      out.contains('START FAILED') && out.contains('IGNIS_API_BODY_BUDGET_MB'));
 
   print('backend TLS:');
   List<String> w(Map<String, String> env) => Ignis.backendTlsWarnings(env);
