@@ -162,7 +162,7 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
   — every String in the model, in nested maps and lists, and object fields read via mirrors; at output, any
   other value (objects with their own `toString()`, exceptions, records), also inside a printed collection and
   in the `string` / `join` filters. `striptags` is Ignis' own: Jinja's version unescapes its result, which
-  turned an escaped `<script>` from the model back into markup. Trusted HTML passes only as `Html(...)`.
+  turned an escaped `<script>` from the model back into markup; ours escapes `<` `>` `"` `'` left in its result. Trusted HTML passes only as `Html(...)`.
   Known limits: the `~` operator concatenates through `toString()` before escaping, so `{{ obj ~ 'x' }}` prints
   the object's `toString()` raw — pass strings (escaped by the model) to `~`, or format the value in Dart; and
   `replace` works on the escaped text, so `{{ x|replace('&lt;', '<') }}` rebuilds markup — never replace

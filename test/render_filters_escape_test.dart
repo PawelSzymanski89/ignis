@@ -35,6 +35,11 @@ void main() {
   check('striptags still strips tags of trusted Html', r('{{ h|striptags }}', {'h': const Html('<b>a</b>  b')}) == 'a b');
   check('striptags keeps entities of trusted Html escaped',
       r('{{ h|striptags }}', {'h': const Html('<i>&lt;x&gt;</i>')}) == '&lt;x&gt;');
+  check('striptags removes a multi-line HTML comment of trusted Html',
+      r('{{ h|striptags }}', {'h': const Html('a<!-- x > y\nhidden\n-->b')}) == 'ab');
+  final attr = r('<a title="{{ h|striptags }}">', {'h': const Html('<a title=">">x</a>" onmouseover=\'1\'')});
+  check('striptags escapes " and \' left in trusted Html — the result is safe in an attribute ($attr)',
+      !RegExp('["\']').hasMatch(attr.substring(10, attr.length - 2)));
 
   // documented exceptions (SECURITY.md, "Notes for app authors") — the template author writes them deliberately
   check('`~` with an object whose toString() holds markup prints it raw (documented)',

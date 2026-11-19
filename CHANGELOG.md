@@ -31,7 +31,9 @@ Hardening follow-up to 0.2.0 (HARD-L.13). Details in `SECURITY.md`.
   created with the old password in parallel, or one whose Redis key survived, is rejected. Customer sessions
   stored before this change have no epoch and are rejected — customers sign in again.
 - The `striptags` template filter no longer unescapes its result: Jinja's version turned an escaped
-  `<script>` from the model back into raw markup. Entities stay escaped; trusted `Html` still loses its tags.
+  `<script>` from the model back into raw markup. Entities stay escaped; trusted `Html` still loses its tags
+  (HTML comments too, also multi-line ones), and a `<` `>` `"` `'` left over is escaped, so the result is safe
+  in an attribute value.
 - A request query that runs while an elevated block (`Db.asSystem` / `Db.asPlatform`) of the same transaction
   holds its context, from outside that block (`Future.wait`, an un-awaited future), throws `StateError`
   instead of running with the elevated context and seeing every tenant.

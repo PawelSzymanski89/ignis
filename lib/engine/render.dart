@@ -106,15 +106,17 @@ class Renderer {
   static String _join(Iterable<Object?> values, [String delimiter = '']) => values.map(_safe).join(delimiter);
 
   /// jinja's `striptags` unescapes its result, turning an escaped `<script>` from the model back into markup.
-  /// Here entities stay as they are, and a `<`/`>` left over from a broken tag is escaped.
+  /// Here entities stay as they are, and a `<` `>` `"` `'` left over from a broken tag is escaped (safe in an attribute).
   static String _stripTags(Object? v) => '${_safe(v)}'
       .replaceAll(_tags, '')
       .split(_spaces)
       .where((w) => w.isNotEmpty)
       .join(' ')
       .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;');
-  static final _tags = RegExp('(<!--.*?-->|<[^>]*>)'), _spaces = RegExp(r'\s+');
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  static final _tags = RegExp(r'(<!--[\s\S]*?-->|<[^>]*>)'), _spaces = RegExp(r'\s+');
 
   /// `x.y` in a template. Maps are read directly (no mirrors and no
   /// NoSuchMethodError exception on every dot), object fields through reflection — and those
