@@ -230,7 +230,8 @@ Future<void> main() => Ignis.start(
 ```
 
 - **Pages** extend `PageEngine` / `AdminPage` and carry `@Page(route, template:, requires:, label:,
-  group:, order:)`. `@Page(api: true)` is a JSON route without CSRF. `@Page(methods: ['POST'])` returns 405
+  group:, order:)`. `@Page(api: true)` is a JSON route without CSRF, so it must not
+  authenticate by cookie: on an `AdminPage` / `CustomerPage` subclass it stops the node at start-up. `@Page(methods: ['POST'])` returns 405
   for other methods. `@Page(maxBody:)` is the only way a route accepts multipart.
 - **Entities** use `@Entity('table', pk:, unique:)`. Tables and columns are created at start-up, but columns
   are never dropped and their types are never changed.

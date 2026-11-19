@@ -10,6 +10,12 @@
   created with the old password in parallel, or one whose Redis key survived, is rejected. Customer sessions
   stored before this change have no epoch and are rejected — customers sign in again once.
 
+### Breaking
+
+- `@Page(api: true)` or `@Page(cors: true)` on an `AdminPage` / `CustomerPage` subclass stops the node at
+  start-up (`StateError` listing the routes): such routes skip CSRF while the session cookie authenticates them.
+  Extend `PageEngine` and authenticate by a header token, or drop `api`/`cors` and keep CSRF.
+
 ## 0.2.0 — 2026-11-19
 
 Hardening release after an external review and its follow-up. Details in `SECURITY.md`.

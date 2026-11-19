@@ -15,7 +15,9 @@
 
 import 'dart:mirrors';
 
+import 'admin_page.dart';
 import 'annotations.dart';
+import 'customer_page.dart';
 import 'page_engine.dart';
 import 'session.dart' show Sessions;
 
@@ -151,6 +153,8 @@ class PageRegistry {
     final mirrors = currentMirrorSystem();
     // the base type pages MUST extend
     final pageEngineType = reflectClass(PageEngine);
+    final cookieAuth = [reflectClass(AdminPage), reflectClass(CustomerPage)];
+    final refused = <String>[];
 
     for (final lib in mirrors.libraries.values) {
       for (final decl in lib.declarations.values) {
@@ -162,11 +166,19 @@ class PageRegistry {
         for (final meta in decl.metadata) {
           final r = meta.reflectee;
           if (r is Page) {
+            if ((r.api || r.cors) && cookieAuth.any(decl.isSubclassOf)) {
+              refused.add('${r.route} (${MirrorSystem.getName(decl.simpleName)})');
+            }
             _routes[r.route] = PageRoute(decl, r, _scanSynced(decl), scanActions(decl));
             break; // one @Page per class
           }
         }
       }
+    }
+    if (refused.isNotEmpty) {
+      throw StateError('@Page(api: true) / @Page(cors: true) skip CSRF, so they must not authenticate by cookie; '
+          'these pages extend AdminPage or CustomerPage (session cookie): ${refused.join(', ')}. '
+          'Extend PageEngine and authenticate by a token in a header, or drop api/cors and keep CSRF');
     }
     _withParams = [for (final r in _routes.values) if (r.meta.route.contains('{')) r];
     _apiPrefixes = {

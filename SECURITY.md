@@ -329,6 +329,10 @@ These are deliberate limits of the engine API, not bugs; code built on Ignis has
 - **CSRF covers every unsafe method.** Non-API routes require the `csrf` token for any method other than
   GET/HEAD/OPTIONS (PUT, PATCH and DELETE included), sent in an `x-www-form-urlencoded` body. Only routes
   declared `@Page(api: true)` skip it; an API path prefix alone selects the JSON error format, not the exemption.
+  An API route therefore must not authenticate by cookie (`SameSite=Lax` does not stop a sibling subdomain, which
+  is same-site): `api: true` or `cors: true` on an `AdminPage` / `CustomerPage` subclass stops the node at
+  start-up. A plain `PageEngine` API route that reads a session cookie itself is not detected — authenticate
+  API routes by a token in a header.
 - **`/health` relies on the proxy.** The health endpoint is limited to direct (loopback) clients. Behind a
   reverse proxy that does not set `X-Forwarded-For`, every request looks local, so the endpoint becomes public.
   The shipped nginx sample sets the header; custom proxies must do the same.
