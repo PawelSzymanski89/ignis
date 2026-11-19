@@ -16,6 +16,7 @@ import 'package:postgres/postgres.dart' show Sql;
 import 'ignis.dart';
 import 'db.dart';
 import 'config.dart';
+import 'schema.dart';
 
 class Seed {
   /// Permission catalog — what can be granted at all: core + app permissions.
@@ -48,18 +49,8 @@ class Seed {
   // Defaults come from the field descriptions (engine/config.dart) — one source
   // of truth for the panel and for the seed, so a new field needs no change to this file.
 
-  /// Same key as the start-up lock of `Schema.sync` — parallel nodes do not both seed the admin account.
-  static const _startLock = 0x49676e73;
-
-  static Future<void> seed() => Db.asSystemSession(() async {
-        final c = await Db.connect();
-        await c.execute('SELECT pg_advisory_lock($_startLock)');
-        try {
-          await _seed();
-        } finally {
-          await c.execute('SELECT pg_advisory_unlock($_startLock)');
-        }
-      });
+  /// Under the start-up lock of `Schema.sync` ([Schema.startLock]) — parallel nodes do not both seed the admin account.
+  static Future<void> seed() => Schema.underStartLock(_seed);
 
   static Future<void> _seed() async {
     final c = await Db.connect();

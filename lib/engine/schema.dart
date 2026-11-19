@@ -238,29 +238,62 @@ class Schema {
     return r.first[0] == true;
   }
 
-  /// Session advisory lock taken by [sync] and `Seed.seed` (same key there): nodes starting at once would
-  /// otherwise race on CREATE TABLE / ADD COLUMN and on the initial admin account.
-  static const _startLock = 0x49676e73;
+  /// Session advisory lock of the start-up (one key for [sync], `Seed.seed` and `Ignis.start`): nodes starting at
+  /// once would otherwise race on CREATE TABLE / ADD COLUMN and on the initial admin account. `Ignis.start` holds
+  /// it once around sync + seed, so no node sees a half-initialized database between the two.
+  static const startLock = 0x49676e73;
+
+  /// How long to wait for [startLock] before giving up (a stuck migration holding it should not hang every start).
+  static Duration startLockWait = const Duration(minutes: 5);
+
+  /// [body] in a system session holding [startLock]. Nested calls (sync and seed inside `Ignis.start`) share the
+  /// connection and re-enter the lock at once. An error from [body] is not masked by a failed unlock.
+  static Future<T> underStartLock<T>(Future<T> Function() body) => Db.asSystemSession(() async {
+        final c = await Db.connect();
+        await _acquireStartLock(c);
+        try {
+          return await body();
+        } finally {
+          try {
+            await c.execute('SELECT pg_advisory_unlock($startLock)');
+          } catch (e) {
+            // the session ends with the connection anyway; the error of [body] (if any) is the one to report
+            stderr.writeln('Ignis: releasing the start-up lock — $e');
+          }
+        }
+      });
+
+  /// `pg_try_advisory_lock` in a loop, so a long wait is logged and bounded (over [startLockWait] → [StateError]).
+  static Future<void> _acquireStartLock(DbSession c) async {
+    final deadline = DateTime.now().add(startLockWait);
+    var announced = false;
+    while ((await c.execute('SELECT pg_try_advisory_lock($startLock)')).first[0] != true) {
+      if (DateTime.now().isAfter(deadline)) {
+        throw StateError('waited over ${startLockWait.inSeconds} s for the start-up lock ($startLock) — another node '
+            'or session holds it (a stuck migration?); the node will not start');
+      }
+      if (!announced) {
+        stdout.writeln('Ignis: waiting for start-up lock (another node is migrating or seeding)');
+        announced = true;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+  }
 
   /// Brings the database schema in line with the @Entity classes.
   static Future<void> sync() async {
     final mode = Platform.environment['IGNIS_SCHEMA'] ?? 'update';
-    await Db.asSystemSession(() async {
+    await underStartLock(() async {
       final c = await Db.connect();
-      await c.execute('SELECT pg_advisory_lock($_startLock)');
-      try {
-        if (mode != 'none') await _sync(mode);
-        if (mode != 'update' && await _ownsTables(c)) {
-          stdout.writeln('Ignis: the database role owns the engine tables, but IGNIS_SCHEMA=$mode — a node that does not '
-              'migrate should run on a role with DML grants only, so a compromised node cannot ALTER/DROP RLS policies '
-              '(SECURITY.md, "Runtime database role").');
-        }
-        final rls = await checkRls(c);
-        if (rls.isNotEmpty) {
-          throw StateError('RLS does not match the code — the node will not start without service isolation:\n  • ${rls.join('\n  • ')}');
-        }
-      } finally {
-        await c.execute('SELECT pg_advisory_unlock($_startLock)');
+      if (mode != 'none') await _sync(mode);
+      if (mode != 'update' && await _ownsTables(c)) {
+        stdout.writeln('Ignis: the database role owns the engine tables, but IGNIS_SCHEMA=$mode — a node that does not '
+            'migrate should run on a role with DML grants only, so a compromised node cannot ALTER/DROP RLS policies '
+            '(SECURITY.md, "Runtime database role").');
+      }
+      final rls = await checkRls(c);
+      if (rls.isNotEmpty) {
+        throw StateError('RLS does not match the code — the node will not start without service isolation:\n  • ${rls.join('\n  • ')}');
       }
     });
   }
