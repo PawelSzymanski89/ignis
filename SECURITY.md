@@ -111,7 +111,7 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
   (`Db.passwordError`) — panel, front accounts, `bin/account.dart` and `IGNIS_ADMIN_PASS`.
   Login is for `realm='staff'` only — customer accounts have an empty hash and cannot use this path.
 - **Front accounts** (`realm='customer'`, `engine/customer_accounts.dart`): password + bcrypt, password
-  reset via a single-use token (1 h, invalidated by a password change), a separate session cookie.
+  reset via a single-use token (1 h, invalidated by a password change, consumed atomically), a separate session cookie.
 - **Sessions** live in the shared Redis, keyed by the SHA-256 of the token (a Redis dump does not
   expose live tokens); cookies are `__Host-` prefixed `HttpOnly` + `Secure` + `SameSite=Lax`
   (`__Host-ignis_session` for the panel, `__Host-ignis_customer` for customers, `__Host-ignis_csrf`). A

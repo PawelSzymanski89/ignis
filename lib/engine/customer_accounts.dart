@@ -161,8 +161,12 @@ class CustomerAccounts {
     final b = passwordError(password);
     final e = await resetEmail(service, token);
     if (e == null) return resetMessage;
-    if (b != null) return b;
-    await Redis.del(resetKey(token));
+    if (b != null) return b; // a mistyped password does not use the link up
+    // GET+DEL in one script (GETDEL needs Redis 6.2): of parallel resets with this token only one gets the value.
+    // Consumed before the database write — a failed write leaves the token used, not reusable.
+    final taken = await Redis.cmd(['EVAL', "local v = redis.call('GET', KEYS[1]) redis.call('DEL', KEYS[1]) return v",
+        '1', resetKey(token)]);
+    if (taken == null) return resetMessage; // a parallel reset took it first
     return await setPassword(service, e, password) ?? '';
   }
 

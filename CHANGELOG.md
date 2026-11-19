@@ -14,6 +14,9 @@
 - A request query that runs while an elevated block (`Db.asSystem` / `Db.asPlatform`) of the same transaction
   holds its context, from outside that block (`Future.wait`, an un-awaited future), throws `StateError`
   instead of running with the elevated context and seeing every tenant.
+- A customer password-reset token is consumed atomically (GET+DEL in one Redis script): of parallel resets with
+  one link exactly one sets the password. A password rejected by the length rule does not use the link up; a
+  database error after the consumption leaves it used.
 
 ### Breaking
 
