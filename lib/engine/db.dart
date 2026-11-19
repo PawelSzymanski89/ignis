@@ -58,6 +58,9 @@ class DbSession {
   Future<void> _raisedChain = Future.value();
   int _raised = 0;
 
+  /// The open transaction wrote a @Cached entity — its reads bypass the Redis mirror until it ends.
+  bool _cachedWrites = false;
+
   /// Whether queries run with an explicit context (request or system).
   bool get inContext => _context != null || _connection != null;
 
@@ -108,6 +111,7 @@ class DbSession {
     _done = null;
     _result = null;
     _points = 0;
+    _cachedWrites = false;
     if (end == null) return;
     end.complete(error);
     var committed = false;
@@ -304,6 +308,13 @@ class Db {
     if (s?._opening == null) return task();
     (onlyAfterCommit ? s!._afterCommit : s!._afterEnd).add(task);
   }
+
+  /// Marks the open transaction as having written a @Cached entity ([Orm]): until it ends, reads skip the mirror
+  /// (they must see the transaction's own writes) and do not fill it with uncommitted data.
+  static void noteCachedWrite() => _lazy?._cachedWrites = true;
+
+  /// Whether the open transaction has written a @Cached entity.
+  static bool get hasCachedWrites => _lazy?._cachedWrites ?? false;
 
   /// COMMIT of what the current transaction has done so far, and return of the connection — before a transfer to storage.
   /// The rest of the request runs in a new transaction, so it is not atomic with what came before.

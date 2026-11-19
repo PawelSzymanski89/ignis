@@ -7,7 +7,7 @@
 //
 //  - saving under a PER-ENTITY LOCK (Redis lock:<Type>:<id>) — no race between nodes;
 //    unlock after the database write,
-//  - @Cached → entity mirror in Redis (every node sees the same; read-through; written after COMMIT),
+//  - @Cached → entity mirror in Redis (every node sees the same; read-through; a write invalidates it),
 //  - SQL always parameterized (SQL injection closed at the source).
 // ============================================================================
 
@@ -138,8 +138,7 @@ class Orm {
       } else {
         await conn.execute(Sql.named(updateSql(meta)), parameters: values(meta.fields));
       }
-      // @Cached → mirror in Redis after COMMIT. We read the current id.
-      if (meta.cached) await _mirror(meta, im.getField(pk).reflectee, values(meta.fields));
+      if (meta.cached) await _invalidate(meta, im.getField(pk).reflectee);
     } finally {
       if (owner != null) await unlock(lockKey!, owner);
     }
@@ -157,7 +156,7 @@ class Orm {
     final im = reflect(entity);
     final vals = {for (final f in meta.fields) f.name: im.getField(Symbol(f.name)).reflectee};
     final r = await (await Db.connect()).execute(Sql.named(sql(meta)), parameters: vals);
-    if (r.affectedRows > 0 && meta.cached) await _mirror(meta, vals[meta.pk]!, vals);
+    if (r.affectedRows > 0 && meta.cached) await _invalidate(meta, vals[meta.pk]!);
     return r.affectedRows > 0;
   }
 
@@ -166,31 +165,39 @@ class Orm {
     final meta = EntityRegistry.byType(T);
     await (await Db.connect()).execute(
         Sql.named('DELETE FROM ${meta.table} WHERE ${meta.pk}=@id'), parameters: {'id': id});
-    if (meta.cached) await Db.afterTransaction(() => Redis.del('entity:${meta.typeName}:$id'));
+    if (meta.cached) await _invalidate(meta, id);
   }
 
   /// Reads one entity of type T by primary key (from the cache when @Cached, otherwise from the database).
+  /// A transaction that has written a @Cached entity reads the database and leaves the mirror alone.
   static Future<T?> read<T>(Object id) async {
     final meta = EntityRegistry.byType(T);
-    if (meta.cached) {
-      final raw = await _cacheGet(meta, id);
-      if (raw != null) {
-        for (final f in meta.fields) {
-          if (raw[f.name] is String && f.type.toString().replaceAll('?', '') == 'DateTime') {
-            raw[f.name] = DateTime.parse(raw[f.name] as String);
-          }
+    final mirrored = meta.cached && !Db.hasCachedWrites;
+    final key = 'entity:${meta.typeName}:$id';
+    String? lease;
+    if (mirrored) {
+      final raw = await Redis.get(key);
+      if (raw != null && !raw.startsWith(_lease)) {
+        try {
+          return _fromMirror(meta, raw) as T;
+        } catch (_) {
+          await Redis.del(key); // unreadable entry (older format, foreign write) = miss
         }
-        return _hydrate(meta, raw) as T;
+      }
+      if (raw == null) {
+        // the lease is taken BEFORE the database read: a write that commits in between drops it, so the fill below
+        // cannot bring back the old row
+        lease = '$_lease${Crypto.randomToken(8)}';
+        if (!await Redis.setNxEx(key, lease, 10)) lease = null;
       }
     }
-    final conn = await Db.connect();
-    final res = await conn.execute(
+    final res = await (await Db.connect()).execute(
       Sql.named('SELECT * FROM ${meta.table} WHERE ${meta.pk}=@id'),
       parameters: {'id': id},
     );
     if (res.isEmpty) return null;
     final map = res.first.toColumnMap();
-    if (meta.cached) await _mirror(meta, id, map); // add to the mirror
+    if (lease != null) await _fill(meta, key, lease, map);
     return _hydrate(meta, map) as T;
   }
 
@@ -221,20 +228,44 @@ class Orm {
     return inst.reflectee;
   }
 
-  /// Redis mirror: entity:<Type>:<id> = JSON of the fields. ttl from @Cached (0 = no TTL).
-  /// Written only after COMMIT — a rolled-back write must not leave a row in the mirror that the database never had.
-  static Future<void> _mirror(EntityMeta meta, Object id, Map<String, Object?> vals) {
+  /// Prefix of a placeholder that a reader puts in the mirror before reading the database.
+  static const _lease = 'lease:';
+
+  /// A write invalidates the mirror (entity:<Type>:<id>) and never fills it: right away, so other nodes stop
+  /// reading the old row, and again after the transaction ends (COMMIT or ROLLBACK), so a reader that filled
+  /// it from the still committed old row in between does not keep it.
+  static Future<void> _invalidate(EntityMeta meta, Object id) async {
     final key = 'entity:${meta.typeName}:$id';
-    final json = jsonEncode(vals.map((k, v) => MapEntry(k, v is DateTime ? v.toIso8601String() : v)));
-    return Db.afterTransaction(
-        () => meta.ttl > 0 ? Redis.setEx(key, json, meta.ttl) : Redis.set(key, json),
-        onlyAfterCommit: true);
+    Db.noteCachedWrite();
+    await Redis.del(key);
+    await Db.afterTransaction(() => Redis.del(key));
   }
 
-  static Future<Map<String, dynamic>?> _cacheGet(EntityMeta meta, Object id) async {
-    final raw = await Redis.get('entity:${meta.typeName}:$id');
-    if (raw == null) return null;
-    return (jsonDecode(raw) as Map).cast<String, dynamic>();
+  /// Fills the mirror with a row read from the database — only if the key still holds this reader's [lease]
+  /// (no write dropped it meanwhile). ttl from @Cached (0 = no expiry).
+  static Future<void> _fill(EntityMeta meta, String key, String lease, Map<String, Object?> vals) async {
+    final json = jsonEncode(vals.map((k, v) => MapEntry(k, v is DateTime ? v.toUtc().toIso8601String() : v)));
+    await Redis.cmd([
+      'EVAL',
+      "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end "
+          "if ARGV[3] == '0' then redis.call('SET', KEYS[1], ARGV[2]) "
+          "else redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]) end return 1",
+      '1',
+      key,
+      lease,
+      json,
+      '${meta.ttl}',
+    ]);
+  }
+
+  static Object _fromMirror(EntityMeta meta, String json) {
+    final raw = (jsonDecode(json) as Map).cast<String, dynamic>();
+    for (final f in meta.fields) {
+      if (raw[f.name] is String && f.type.toString().replaceAll('?', '') == 'DateTime') {
+        raw[f.name] = DateTime.parse(raw[f.name] as String);
+      }
+    }
+    return _hydrate(meta, raw);
   }
 
   /// Simple distributed lock: SET key val NX EX 5, with a short retry.

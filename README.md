@@ -245,7 +245,7 @@ in HTTP. All of them work with zero configuration. Each one has a clear owner an
 
 | Layer | What | Where it lives | Invalidation |
 |---|---|---|---|
-| 🪞 Entity mirror | Rows of `@Cached` entities | Redis `entity:<Type>:<id>` | Refreshed on `save`/`insert`/`upsert` and dropped on `delete`, after commit; optional TTL |
+| 🪞 Entity mirror | Rows of `@Cached` entities | Redis `entity:<Type>:<id>` | Dropped on `save`/`insert`/`upsert`/`delete` (right away and after the transaction ends); refilled by the next read; optional TTL |
 | 🔑 Permissions | Effective permissions of an account | Redis `perm:<login>`, 15 min | `Permissions.invalidate` / `invalidateMany` after the transaction ends |
 | ⚙️ Settings | Settings of one service (secrets **encrypted**) | Redis `settings:<service>`, 60 s | Dropped after every `saveSetting` |
 | 🌐 Domain map | Host → service, name, active flag | Node memory | Re-read every `Tenants.refreshing` (30 s) or after `Tenants.refresh()` |
@@ -259,10 +259,13 @@ Put `@Cached` next to `@Entity` and the row is mirrored in Redis under `entity:<
 reads the same copy:
 
 - **Read-through:** `readEntity<T>(id)` / `Orm.read<T>(id)` checks Redis first. On a miss it reads the
-  database and fills the mirror.
-- **Refreshed on write:** `saveEntity` / `Orm.save`, `Orm.insert` and `Orm.upsert` refresh the mirror.
-  `Orm.delete<T>(id)` removes it. Inside a request the mirror is updated after the transaction commits;
-  a rolled-back write leaves it untouched.
+  database and fills the mirror — only if no write dropped the key meanwhile (the reader reserves it with
+  `SET NX` before the query).
+- **Invalidate on write:** `saveEntity` / `Orm.save`, `Orm.insert`, `Orm.upsert` and `Orm.delete<T>(id)`
+  never write the mirror; they delete the key right away and again after the transaction ends (commit or
+  rollback). Until then the writing transaction reads the database directly (it sees its own writes) and does
+  not fill the mirror, so a rolled-back write or savepoint never reaches Redis.
+- `DateTime` fields are stored in UTC. An entry that cannot be read back counts as a miss and is dropped.
 - `@Cached(ttl: 3600)` expires the mirror after an hour. `ttl: 0` (the default) means no expiry.
 - `readEntitys<T>()` / `Orm.readAll` and `Orm.pick` always go to the database.
 
