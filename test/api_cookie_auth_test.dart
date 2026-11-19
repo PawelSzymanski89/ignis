@@ -14,6 +14,12 @@ class CustomerApi extends CustomerPage {}
 @Page('/v1/staff-x', api: true, cors: true, methods: ['POST'])
 class StaffApi extends AdminPage {}
 
+@Page('/customer-cors-x', cors: true, methods: ['POST'])
+class CustomerCors extends CustomerPage {}
+
+@Page('/admin/staff-cors-x', cors: true, methods: ['POST'])
+class StaffCors extends AdminPage {}
+
 @Page('/v1/plain-x', api: true, methods: ['POST'])
 class PlainApi extends PageEngine {}
 
@@ -28,6 +34,8 @@ void main() {
   final m = '$error';
   check('…naming the CustomerPage route', m.contains('/v1/customer-x') && m.contains('CustomerApi'));
   check('…and the AdminPage route', m.contains('/v1/staff-x') && m.contains('StaffApi'));
+  check('cors: true alone (no api) on a CustomerPage → refused too', m.contains('/customer-cors-x (CustomerCors)'));
+  check('cors: true alone (no api) on an AdminPage → refused too', m.contains('/admin/staff-cors-x (StaffCors)'));
   check('…but not a plain PageEngine API page', !m.contains('/v1/plain-x'));
   check('…telling what to do', m.contains('cookie') && m.contains('CSRF'));
   print('\nALL PASSED');
