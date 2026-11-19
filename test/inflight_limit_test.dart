@@ -13,7 +13,31 @@ void check(String description, bool condition) {
 @Page('/v8/x', api: true)
 class ApiPage extends PageEngine {}
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
+  if (args.isEmpty) {
+    // the scenario runs in a child, so its log lines (stdout) can be checked
+    final r = await Process.run(Platform.resolvedExecutable, [Platform.script.toFilePath(), 'child']);
+    stdout.write(r.stdout);
+    stderr.write(r.stderr);
+    if (r.exitCode != 0) exit(r.exitCode);
+    final log = '${r.stdout}';
+    check('a 503 rejection is logged like other requests',
+        RegExp(r'Ignis GET /b 503 0ms id=[0-9a-f]{16} overloaded').hasMatch(log));
+    check('…at most one line a second (the API rejection right after is counted, not logged)',
+        !log.contains('Ignis GET /v8/x 503'));
+    check('IGNIS_MAX_INFLIGHT: unset → 512, a number ≥ 1 is taken',
+        Engine.parseMaxInFlight(null) == 512 && Engine.parseMaxInFlight(' 20 ') == 20);
+    for (final bad in ['0', '-3', 'many', '']) {
+      Object? e;
+      try {
+        Engine.parseMaxInFlight(bad);
+      } catch (x) {
+        e = x;
+      }
+      check('IGNIS_MAX_INFLIGHT=$bad → StateError', e is StateError && '$e'.contains('IGNIS_MAX_INFLIGHT'));
+    }
+    return;
+  }
   PageRegistry.build();
   check('default limit is 512', Engine.maxInFlight == 512);
   Engine.maxInFlight = 1;

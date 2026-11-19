@@ -43,6 +43,9 @@ Future<void> main(List<String> a) async {
   check('Ignis.start with none gets past the check (stops later, on the missing database)',
       out.contains('START FAILED') && !out.contains('IGNIS_TRUSTED_PROXIES') && out.contains('IGNIS_DB_HOST'));
 
+  out = await start({'IGNIS_TRUSTED_PROXIES': 'none', 'IGNIS_MAX_INFLIGHT': '0'});
+  check('IGNIS_MAX_INFLIGHT=0 stops the start', out.contains('START FAILED') && out.contains('IGNIS_MAX_INFLIGHT'));
+
   print('backend TLS:');
   List<String> w(Map<String, String> env) => Ignis.backendTlsWarnings(env);
   check('everything on loopback — no warning',

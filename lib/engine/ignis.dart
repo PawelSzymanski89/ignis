@@ -129,6 +129,7 @@ class Ignis {
       throw StateError('No IGNIS_KEY (64 random hex chars — e.g. openssl rand -hex 32) — the node will not start, because '
           'secrets in settings would reach the database as plain text');
     }
+    Engine.maxInFlight = Engine.parseMaxInFlight(env['IGNIS_MAX_INFLIGHT']);
     final proxiesError = trustedProxiesError(env);
     if (proxiesError != null) throw StateError(proxiesError);
     backendTlsWarnings(env).forEach(stdout.writeln);

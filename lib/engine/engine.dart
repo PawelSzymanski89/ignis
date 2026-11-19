@@ -119,11 +119,25 @@ class Engine {
 
   /// Requests handled at once (`IGNIS_MAX_INFLIGHT`, 512 by default); above it 503 with `Retry-After`
   /// before routing, so a flood does not queue bodies, pool waits and bcrypt jobs without bound.
-  static int maxInFlight = int.tryParse(Platform.environment['IGNIS_MAX_INFLIGHT'] ?? '') ?? 512;
+  /// [Ignis.start] sets it from [parseMaxInFlight].
+  static int maxInFlight = 512;
   static int _inFlight = 0;
+
+  /// `IGNIS_MAX_INFLIGHT`: unset → 512; anything but an integer ≥ 1 stops the node (0 would answer 503 to everything).
+  static int parseMaxInFlight(String? value) {
+    if (value == null) return 512;
+    final n = int.tryParse(value.trim());
+    if (n == null || n < 1) throw StateError('IGNIS_MAX_INFLIGHT=$value — must be an integer ≥ 1 (512 by default)');
+    return n;
+  }
+
+  static final _rejectLog = Stopwatch();
+  static int _rejectsUnlogged = 0;
 
   static Future<void> _overloaded(HttpRequest req) async {
     final res = req.response;
+    final id = List.generate(8, (_) => _rng.nextInt(256)).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    res.headers.set('X-Request-Id', id);
     res.headers.set(HttpHeaders.retryAfterHeader, '5');
     securityHeaders(res.headers);
     try {
@@ -131,6 +145,18 @@ class Engine {
       await errorPage(res, HttpStatus.serviceUnavailable, 'other', language: requestLanguage(req));
     } catch (_) {
       await res.close().catchError((_) {});
+    } finally {
+      // at most one line a second under a flood; the next line says how many were not logged
+      if (_rejectLog.isRunning && _rejectLog.elapsedMilliseconds < 1000) {
+        _rejectsUnlogged++;
+      } else {
+        final more = _rejectsUnlogged > 0 ? ' (+$_rejectsUnlogged more 503 not logged)' : '';
+        _rejectsUnlogged = 0;
+        _rejectLog
+          ..reset()
+          ..start();
+        stdout.writeln('${logLine(req.method, req.uri.path, HttpStatus.serviceUnavailable, 0, id)} overloaded$more');
+      }
     }
   }
 
