@@ -165,6 +165,51 @@ Future<void> main() async {
   }
   check('an error in the block body is not masked (22012, not 25P02)', error is ServerException && error.code == '22012');
 
+  // HARD-L.13.5: a plain request query running while an elevated block holds '*' (Future.wait, un-awaited)
+  // gets StateError instead of every tenant's rows
+  for (final variant in ['block first', 'query first', 'un-awaited']) {
+    late Object? parallel;
+    late int inBlock, afterAll;
+    await Db.inContext(1, () async {
+      await q('SELECT 1');
+      final entered = Completer<void>(), queried = Completer<void>();
+      Future<int> block() => Db.asSystem(() async {
+            await q('SELECT 1');
+            entered.complete();
+            await queried.future.timeout(const Duration(seconds: 5), onTimeout: () {});
+            return count();
+          });
+      Future<Object?> plain() async {
+        await entered.future;
+        try {
+          return await count();
+        } catch (e) {
+          return e;
+        } finally {
+          queried.complete();
+        }
+      }
+
+      if (variant == 'un-awaited') {
+        final p = Completer<Object?>();
+        unawaited(plain().then(p.complete));
+        inBlock = await block();
+        parallel = await p.future;
+      } else if (variant == 'block first') {
+        final r = await Future.wait<Object?>([block(), plain()]);
+        (inBlock, parallel) = (r[0] as int, r[1]);
+      } else {
+        final r = await Future.wait<Object?>([plain(), block()]);
+        (parallel, inBlock) = (r[0], r[1] as int);
+      }
+      afterAll = await count();
+    });
+    check('$variant: a plain query during an elevated block → StateError ($parallel)',
+        parallel is StateError && '$parallel'.contains('elevated'));
+    check('$variant: the block itself still sees every tenant, the request its own afterwards',
+        inBlock == 2 && afterAll == 1);
+  }
+
   await Db.asSystem(() async => (await Db.connect()).execute("DELETE FROM settings WHERE key LIKE 'elev.%'"));
   await Db.close();
   print('\nALL PASSED');

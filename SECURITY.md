@@ -316,10 +316,11 @@ These are deliberate limits of the engine API, not bugs; code built on Ignis has
   data never reaches Redis. `Orm.read`,
   `Orm.readAll` and `Orm.delete` filter by primary key only and rely on RLS; domain queries must still
   carry `AND service = @s` (QUALITY.md).
-- **Elevated blocks are not isolated from their own request.** Inside a request, `Db.asSystem` and
+- **Elevated blocks share their request's transaction.** Inside a request, `Db.asSystem` and
   `Db.asPlatform` switch `ignis.service` on the request's single transaction for the duration of the
-  body. Any query of the same request that runs *concurrently* (`Future.wait([Db.asSystem(a), b()])`,
-  an un-awaited future) sees every tenant. Always `await` an elevated block before issuing other queries.
+  body. A query of the same request that runs *concurrently* from outside the block
+  (`Future.wait([Db.asSystem(a), b()])`, an un-awaited future) throws `StateError` instead of seeing every
+  tenant. Always `await` an elevated block before issuing other queries.
   Elevated blocks of one request run one after another (an overlapping block waits), and after the last
   one the request's own context is restored — it is never read back from the database. `Db.release()` and
   `Db.commit()` inside an elevated block throw `StateError`: they would end the transaction the block runs in.

@@ -77,6 +77,14 @@ class DbSession {
 
   Future<Session> _session() async {
     _alive();
+    if (_raised > 0) {
+      // the transaction runs with the elevated context right now: only code inside the running block may query
+      final z = Zone.current[Db._raisedKey];
+      if (z is! _RaisedBlock || !z.active || !identical(z.session, this)) {
+        throw StateError('A request query ran while Db.asSystem/Db.asPlatform held the elevated context of the same '
+            'transaction (Future.wait or an un-awaited future); await the elevated block before other queries');
+      }
+    }
     if (_context != null) return _tx();
     return _connection ?? _poolRef!;
   }
@@ -337,9 +345,9 @@ class Db {
   }
 
   /// [body] with context [value] set locally in the transaction of session [s]; then the request context returns.
-  /// The context covers the whole request transaction: a query launched IN PARALLEL with [body] (Future.wait,
-  /// un-awaited future) also sees the raised context — always `await` a raised block before the rest
-  /// (SECURITY.md, "Notes for app authors"). Raised blocks of one session run one after another, so an
+  /// The context covers the whole request transaction, so a query launched IN PARALLEL with [body] from outside it
+  /// (Future.wait, un-awaited future) throws [StateError] ([DbSession._session]) — always `await` a raised block
+  /// before the rest (SECURITY.md, "Notes for app authors"). Raised blocks of one session run one after another, so an
   /// overlapping block cannot restore a context it read while another block was raised. Blocks nested in a
   /// still running block queue on that block and restore its context; a future that outlives its block counts
   /// as top-level. Waiting in a queue longer than [_raisedWait] (a block awaiting a future that itself waits

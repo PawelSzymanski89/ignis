@@ -11,6 +11,9 @@
   stored before this change have no epoch and are rejected — customers sign in again once.
 - The `striptags` template filter no longer unescapes its result: Jinja's version turned an escaped
   `<script>` from the model back into raw markup. Entities stay escaped; trusted `Html` still loses its tags.
+- A request query that runs while an elevated block (`Db.asSystem` / `Db.asPlatform`) of the same transaction
+  holds its context, from outside that block (`Future.wait`, an un-awaited future), throws `StateError`
+  instead of running with the elevated context and seeing every tenant.
 
 ### Breaking
 
