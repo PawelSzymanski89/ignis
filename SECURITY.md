@@ -7,6 +7,13 @@ file you can check. Open problems are listed under "Known gaps", not left out.
 > B (network edge / headers) and C/D (panel, audit log, documentation). 0.2.0 closes the findings of the
 > follow-up hardening review (elevated-block context, backpressure, render escaping, key rotation, runtime role).
 
+## Supported versions
+
+| Version | Security fixes |
+|---|---|
+| latest 0.2.x | yes |
+| older | no — upgrade to the latest 0.2.x |
+
 ## Reporting a vulnerability
 
 Report privately, never in a public issue: open a GitHub Security Advisory at
@@ -285,7 +292,7 @@ requests without it makes the health check — with node and backend state — p
 | What | Impact | Where |
 |---|---|---|
 | **coarse request-concurrency limit** | one isolate per node; above `IGNIS_MAX_INFLIGHT` (512) requests in flight, or when no pool connection frees up within 5 s, the node answers `503` with `Retry-After`; API bodies share `IGNIS_API_BODY_BUDGET_MB` (64 MB) and multipart uploads `IGNIS_UPLOAD_BUDGET_MB` (64 MB), other form bodies (256 KB each) only the request limit | `engine/engine.dart` (`Engine.guarded`), `engine/db.dart` |
-| **pagination only where `Listing` is used** | pages without it load everything | panel |
+| **pagination only where `Listing` is used** | pages without it load everything; `Orm.readAll` and `CustomerAccounts.list` have no `LIMIT` | panel, `engine/orm.dart`, `engine/customer_accounts.dart` |
 | **backend TLS is off by default and not mutually authenticated** | relies on a private network unless `IGNIS_DB_SSL` / `IGNIS_S3_SSL` / `IGNIS_REDIS_TLS` are set; a non-loopback host without TLS is warned about at start-up | deployment |
 | **one database role by default** | RLS holds via `FORCE`, but if nodes run on the table owner a compromised node could `ALTER`/`DROP` policies; splitting owner and runtime role is a deployment step ([Runtime database role](#runtime-database-role)); a warning is logged only when the owner role runs with `IGNIS_SCHEMA` other than `update` (the default single-role setup is silent); `IGNIS_REQUIRE_RUNTIME_ROLE=1` turns ownership into a start-up refusal (opt-in) | deployment, `engine/schema.dart` |
 
@@ -295,7 +302,8 @@ requests without it makes the health check — with node and backend state — p
 |---|---|
 | **tenant subdomains** | fronts and panels on system subdomains share an origin / are same-site with the platform panel — a Public Suffix List entry or a separate registrable domain |
 | **staff login namespace** | logins are global (existence oracle, squatting); per-tenant namespacing as for customer accounts is the alternative |
-| **breached-password check** | whether to check new panel passwords against a breached-password list |
+| **breached-password check** | whether to check new panel passwords against a breached-password list (an offline list, or an opt-in online k-anonymity lookup) |
+| **production TLS profile for backends** | whether a remote PostgreSQL / Redis / S3 host without TLS should stop the node (opt-in or by default) instead of the start-up warning |
 
 ## CI scans
 
@@ -349,6 +357,12 @@ These are deliberate limits of the engine API, not bugs; code built on Ignis has
   is same-site): `api: true` or `cors: true` on an `AdminPage` / `CustomerPage` subclass stops the node at
   start-up. A plain `PageEngine` API route that reads a session cookie itself is not detected — authenticate
   API routes by a token in a header.
+- **Template output.** Escaping covers data in the model, not code: a function put into the model and called
+  in the template returns raw text, the `~` operator and `replace` work around escaping (see [Input](#input)).
+  Format values in Dart and pass strings; trusted markup goes only through `Html(...)`.
+- **Unbounded reads.** `Orm.readAll` and `CustomerAccounts.list` load every row the tenant sees, without
+  `LIMIT` — use them only for small tables; lists that grow with users or traffic belong in `Listing` or a
+  query with `LIMIT`.
 - **`/health` relies on the proxy.** The health endpoint is limited to direct (loopback) clients. Behind a
   reverse proxy that does not set `X-Forwarded-For`, every request looks local, so the endpoint becomes public.
   The shipped nginx sample sets the header; custom proxies must do the same.

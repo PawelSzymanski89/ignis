@@ -39,6 +39,12 @@
 - CI `scan` job: `gitleaks` on the pushed / PR commits and `osv-scanner` on `pubspec.lock` (actions pinned by
   SHA); exception policy in `SECURITY.md`, "CI scans".
 
+### Documentation
+
+- `SECURITY.md`: a "Supported versions" table (latest 0.2.x only); "Notes for app authors" on template output
+  limits (`~`, `replace`, functions in the model) and on `Orm.readAll` / `CustomerAccounts.list` without
+  `LIMIT`; the backend TLS profile added to the open owner decisions.
+
 ## 0.2.0 — 2026-11-19
 
 Hardening release after an external review and its follow-up. Details in `SECURITY.md`.
