@@ -1,10 +1,11 @@
 # Ignis security
 
-This document describes the **actual state** of Ignis 0.1.1, not intentions. Every point maps to a
+This document describes the **actual state** of Ignis 0.2.0, not intentions. Every point maps to a
 file you can check. Open problems are listed under "Known gaps", not left out.
 
 > The first public release (0.1.0) included the pre-release audit fixes for areas A (tenant isolation / auth),
-> B (network edge / headers) and C/D (panel, audit log, documentation).
+> B (network edge / headers) and C/D (panel, audit log, documentation). 0.2.0 closes the findings of the
+> follow-up hardening review (elevated-block context, backpressure, render escaping, key rotation, runtime role).
 
 ## Reporting a vulnerability
 

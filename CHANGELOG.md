@@ -1,12 +1,50 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-11-18
+
+Hardening release after an external review. Details in `SECURITY.md`.
+
+### Security
+
+- Elevated blocks (`Db.asSystem` / `Db.asPlatform`) inside a request restore the request's own context
+  instead of a value read back from the database, so overlapping blocks can no longer leave a request
+  elevated; blocks of one request are serialized. `Db.release()` / `Db.commit()` inside such a block throw
+  `StateError`, and an error in the block body is no longer masked by the context reset.
+- `@Cached` mirror: written to Redis only after COMMIT and dropped after the transaction ends (no phantom
+  rows after a rollback); `@Cached` is refused on every table under row-level security.
+- Template rendering escapes a `MapEntry` in the model (`map.entries.toList()`) and every interpolated value
+  that is not a string, number, bool, collection or `Html` (objects with their own `toString()`, exceptions,
+  records). Macros, filters and `Html` are unchanged.
+- Start-up warning when a backend host (PostgreSQL, Redis, S3) is outside loopback while its TLS is off.
+- Start-up warning when the database role owns the engine tables while `IGNIS_SCHEMA` is not `update`;
+  `SECURITY.md` has ready SQL for an owner (migrations) + runtime role (DML grants, `IGNIS_SCHEMA=validate`).
 
 ### Breaking
 
 - `IGNIS_TRUSTED_PROXIES` is required: unset or empty, the node refuses to start with a message saying what
   to set. Behind a reverse proxy set the proxy's IPs/CIDRs; with clients connecting directly set
   `IGNIS_TRUSTED_PROXIES=none` (the previous default behaviour).
+
+### Added
+
+- Key rotation: `IGNIS_KEY_PREVIOUS` (decryption tries the current key, then the previous one) and
+  `bin/rekey.dart`, which re-encrypts settings secrets and TOTP seeds under the current key — idempotent,
+  reports the number of records, exits with 1 when a value is readable with neither key. The ciphertext
+  format is unchanged. A malformed `IGNIS_KEY_PREVIOUS` stops the node.
+- Backpressure: `IGNIS_MAX_INFLIGHT` (512 by default) — requests above it get `503` with `Retry-After`
+  before routing; a request that cannot get a pool connection in time also gets `503` instead of `500`.
+- CI: GitHub Actions running `dart analyze`, the tests without a database and `tool/pg_test.sh`;
+  Dependabot for `pub` and `github-actions`.
+
+### Fixed
+
+- Nodes starting at the same time on a fresh database no longer race on `CREATE TABLE` / `ADD COLUMN`
+  and the initial admin account: `Schema.sync` and `Seed.seed` share one start-up advisory lock.
+- `DateTime` fields read from the `@Cached` mirror come back as `DateTime`, not strings.
+- Runtime messages and comments in `lib/` are in English (the default platform tenant name is now
+  `Platform`, the login page title comes from i18n); the empty partial-index hook in `schema.dart` is gone.
+- Documentation: `SECURITY.md` matches the code on the `users` policy, the README says which tests skip
+  themselves without a database or Redis, the `@SessionSynced` Redis key is described correctly.
 
 ## 0.1.1 — 2026-11-18
 

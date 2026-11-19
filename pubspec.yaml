@@ -4,7 +4,7 @@ description: >-
   domenami): silnik stron i encji przez adnotacje + panel administracyjny.
   Używa dart:mirrors — działa tylko w JIT (`dart run`), bez AOT.
 publish_to: none
-version: 0.1.1
+version: 0.2.0
 repository: https://github.com/PawelSzymanski89/ignis
 homepage: https://github.com/PawelSzymanski89/ignis
 
