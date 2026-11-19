@@ -12,19 +12,22 @@
 
 import 'dart:io';
 
+import 'package:ignis/engine/audit_log.dart';
 import 'package:ignis/engine/crypto.dart';
 import 'package:ignis/engine/db.dart';
 import 'package:ignis/engine/redis.dart';
 import 'package:postgres/postgres.dart' show Sql;
 
 class _Count {
-  int reencrypted = 0, current = 0, unreadable = 0;
+  int reencrypted = 0, current = 0, unreadable = 0, changed = 0;
   @override
-  String toString() => '$reencrypted re-encrypted, $current already current, $unreadable unreadable';
+  String toString() => '$reencrypted re-encrypted, $current already current, $unreadable unreadable'
+      '${changed > 0 ? ', $changed changed meanwhile (run again)' : ''}';
 }
 
-/// Re-encrypts [value]; on success writes it with [write] (compare-and-swap on the old value).
-Future<void> _one(_Count n, String value, String context, Future<void> Function(String) write, String label) async {
+/// Re-encrypts [value]; on success writes it with [write] (compare-and-swap on the old value), which returns
+/// the number of rows it actually updated — 0 when the value changed since it was read.
+Future<void> _one(_Count n, String value, String context, Future<int> Function(String) write, String label) async {
   final String? next;
   try {
     next = Crypto.reencrypt(value, context: context);
@@ -37,7 +40,11 @@ Future<void> _one(_Count n, String value, String context, Future<void> Function(
     n.current++;
     return;
   }
-  await write(next);
+  if (await write(next) == 0) {
+    n.changed++;
+    stderr.writeln('  changed meanwhile, not updated: $label');
+    return;
+  }
   n.reencrypted++;
 }
 
@@ -49,6 +56,9 @@ Future<void> main() async {
   final (settings, totp) = await Db.asSystemSession(_rekey);
   stdout.writeln('settings: $settings');
   stdout.writeln('totp: $totp');
+  await Db.asSystem(() => AuditLog.save(
+      service: 0, actor: 'rekey', location: 'rekey', action: 'rekey', detail: 'settings: $settings; totp: $totp',
+      result: settings.unreadable + totp.unreadable == 0 ? 'ok' : 'error'));
   exit(settings.unreadable + totp.unreadable == 0 ? 0 : 1);
 }
 
@@ -59,16 +69,17 @@ Future<(_Count, _Count)> _rekey() async {
   for (final r in await c.execute("SELECT id, key, value, service FROM settings WHERE value LIKE 'enc:%' ORDER BY id")) {
     final (id, key, value, service) = (r[0] as String, r[1] as String, r[2] as String, r[3] as int);
     await _one(settings, value, '$service|$key', (v) async {
-      await c.execute(Sql.named('UPDATE settings SET value=@v WHERE id=@i AND value=@old'),
+      final r = await c.execute(Sql.named('UPDATE settings SET value=@v WHERE id=@i AND value=@old'),
           parameters: {'v': v, 'i': id, 'old': value});
       services.add(service);
+      return r.affectedRows;
     }, 'settings $id');
   }
   for (final r in await c.execute("SELECT username, totp FROM users WHERE totp LIKE 'enc:%' ORDER BY username")) {
     final (username, value) = (r[0] as String, r[1] as String);
-    await _one(totp, value, 'totp|$username', (v) => c.execute(
+    await _one(totp, value, 'totp|$username', (v) async => (await c.execute(
         Sql.named('UPDATE users SET totp=@v WHERE username=@u AND totp=@old'),
-        parameters: {'v': v, 'u': username, 'old': value}), 'totp $username');
+        parameters: {'v': v, 'u': username, 'old': value})).affectedRows, 'totp $username');
   }
   // the settings cache holds raw ciphertexts for 60 s — drop it so nodes do not keep the old ones
   try {

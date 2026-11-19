@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:ignis/ignis.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'package:postgres/postgres.dart' show ServerException;
 import 'pg_guard.dart';
 
 void check(String description, bool condition) {
@@ -32,6 +33,28 @@ Future<ProcessResult> node(String user, String password, String mode) => Process
 Future<void> main(List<String> a) async {
   if (skipDestructive()) return;
   EntityRegistry.build();
+  if (a.firstOrNull == 'attack') {
+    // what a compromised node on the runtime role would try: drop/alter the isolation itself
+    final codes = <String>[];
+    await Db.asSystemSession(() async {
+      final c = await Db.connect();
+      for (final sql in [
+        'DROP POLICY ${a[1]} ON users',
+        'ALTER TABLE users DISABLE ROW LEVEL SECURITY',
+        'ALTER TABLE users NO FORCE ROW LEVEL SECURITY',
+        'DROP TABLE audit_log',
+      ]) {
+        try {
+          await c.execute(sql);
+          codes.add('passed');
+        } on ServerException catch (e) {
+          codes.add(e.code ?? '?');
+        }
+      }
+    });
+    stdout.write(codes.join(','));
+    exit(0);
+  }
   if (a.isNotEmpty) {
     await Schema.sync();
     await Seed.seed();
@@ -55,6 +78,16 @@ Future<void> main(List<String> a) async {
   check('runtime role — no ownership warning', !'${r.stdout}${r.stderr}'.contains(warning));
   r = await node('ignis_rt', 'ignisrt', 'update');
   check('runtime role cannot migrate (IGNIS_SCHEMA=update fails)', r.exitCode != 0);
+  check('…with insufficient_privilege (42501)', '${r.stdout}${r.stderr}'.contains('42501'));
+  r = await Process.run(Platform.resolvedExecutable, [Platform.script.toFilePath(), 'attack', 'ignis_tenant'],
+      environment: {'IGNIS_DB_USER': 'ignis_rt', 'IGNIS_DB_PASS': 'ignisrt'});
+  check('runtime role: DROP POLICY, DISABLE/NO FORCE RLS and DROP TABLE all refused with 42501 (${r.stdout})',
+      r.stdout == '42501,42501,42501,42501');
+  final policies = await Db.asSystem(() async => (await (await Db.connect())
+          .execute("SELECT count(*) FROM pg_policies WHERE tablename = 'users' AND policyname = 'ignis_tenant'"))
+      .first[0]);
+  check('…and the policy is still there', policies == 1);
+  await Db.close();
 
   final owner = Platform.environment['IGNIS_DB_USER']!, ownerPassword = Platform.environment['IGNIS_DB_PASS']!;
   r = await node(owner, ownerPassword, 'validate');

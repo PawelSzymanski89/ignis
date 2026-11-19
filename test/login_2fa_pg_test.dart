@@ -34,7 +34,12 @@ Future<(int, String, String?)> post(Map<String, String> fields, {String ip = '10
 
 String? step2(String html) => RegExp(r'name="step2" value="([0-9a-f]{48})"').firstMatch(html)?.group(1);
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
+  if (args.length == 3 && args[0] == 'encrypt') {
+    // child with another IGNIS_KEY: a ciphertext this node cannot read (a key mix-up, a restored foreign dump)
+    stdout.write(Crypto.encrypt(args[1], context: args[2]));
+    exit(0);
+  }
   if (skipDestructive()) return;
   EntityRegistry.build();
   PageRegistry.build();
@@ -121,6 +126,22 @@ Future<void> main() async {
   final t6 = await step1(200);
   final (_, h6, s6) = await post({'step2': t6, 'code': Totp.code(secret)!});
   check('hasło nie wystarcza, kod nie do sprawdzenia → brak sesji', s6 == null && h6.contains('The code does not match'));
+  // HARD-L.12.8: the seed encrypted with ANOTHER IGNIS_KEY (right context) — still no sign-in without a code
+  final foreign = await Process.run(Platform.resolvedExecutable,
+      [Platform.script.toFilePath(), 'encrypt', secret, 'totp|$login'], environment: {'IGNIS_KEY': 'abcdef0123456789' * 4});
+  final foreignSeed = '${foreign.stdout}';
+  check('the foreign-key ciphertext is a v2 one this node cannot read',
+      foreignSeed.startsWith('enc:') && Crypto.decrypt(foreignSeed, context: 'totp|$login') == '');
+  await Db.asSystem(() async => (await Db.connect()).execute(
+      Sql.named('UPDATE users SET totp=@t WHERE username=@u'), parameters: {'u': login, 't': foreignSeed}));
+  await Redis.delMany([rl, '2fa-fail:$login', '2fa-last:$login']);
+  final (k7, h7, s7) = await post({'username': login, 'password': password}, ip: '10.0.2.1');
+  check('foreign-key seed: the password alone gives no session, the code step is shown',
+      s7 == null && k7 == 200 && step2(h7) != null);
+  final (_, h8, s8) = await post({'step2': step2(h7)!, 'code': Totp.code(secret)!});
+  check('foreign-key seed: even the right code gives no session', s8 == null && h8.contains('The code does not match'));
+  final (_, _, s9) = await post({'step2': step2(h7)!, 'code': ''});
+  check('foreign-key seed: an empty code gives no session', s9 == null);
   await Db.asSystem(() => Permissions.setTotp(login, secret));
   await Redis.delMany([rl, '2fa-fail:$login', '2fa-last:$login']);
 
