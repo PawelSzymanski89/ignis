@@ -280,7 +280,7 @@ requests without it makes the health check — with node and backend state — p
 
 | What | Impact | Where |
 |---|---|---|
-| **coarse request-concurrency limit** | one isolate per node; above `IGNIS_MAX_INFLIGHT` (512) requests in flight, or when no pool connection frees up within 5 s, the node answers `503` with `Retry-After`; API bodies have no shared byte budget (up to 8 MB each after gzip) | `engine/engine.dart` (`Engine.guarded`), `engine/db.dart` |
+| **coarse request-concurrency limit** | one isolate per node; above `IGNIS_MAX_INFLIGHT` (512) requests in flight, or when no pool connection frees up within 5 s, the node answers `503` with `Retry-After`; API bodies share `IGNIS_API_BODY_BUDGET_MB` (64 MB) and multipart uploads `IGNIS_UPLOAD_BUDGET_MB` (64 MB), other form bodies (256 KB each) only the request limit | `engine/engine.dart` (`Engine.guarded`), `engine/db.dart` |
 | **pagination only where `Listing` is used** | pages without it load everything | panel |
 | **backend TLS is off by default and not mutually authenticated** | relies on a private network unless `IGNIS_DB_SSL` / `IGNIS_S3_SSL` / `IGNIS_REDIS_TLS` are set; a non-loopback host without TLS is warned about at start-up | deployment |
 | **one database role by default** | RLS holds via `FORCE`, but if nodes run on the table owner a compromised node could `ALTER`/`DROP` policies; splitting owner and runtime role is a deployment step ([Runtime database role](#runtime-database-role)); a warning is logged only when the owner role runs with `IGNIS_SCHEMA` other than `update` (the default single-role setup is silent) | deployment, `engine/schema.dart` |

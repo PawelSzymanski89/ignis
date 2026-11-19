@@ -38,14 +38,15 @@ import 'session.dart';
 /// API request body as text. When [gzipped], inflates it while counting the
 /// size: a zip bomb stops at [limit] before it reaches memory.
 /// Throws [UploadTooLarge] when over the limit, [FormatException] on broken gzip.
-String readBody(List<int> bytes, bool gzipped, {int limit = 8 * 1024 * 1024}) =>
-    utf8.decode(readBytes(bytes, gzipped, limit: limit), allowMalformed: true);
+String readBody(List<int> bytes, bool gzipped, {int limit = 8 * 1024 * 1024, void Function(int)? reserve}) =>
+    utf8.decode(readBytes(bytes, gzipped, limit: limit, reserve: reserve), allowMalformed: true);
 
 /// Like [readBody], but without decoding text (binary body, `@Page(binary: true)`).
-List<int> readBytes(List<int> bytes, bool gzipped, {int limit = 8 * 1024 * 1024}) {
+/// [reserve] is called with every inflated chunk before it is kept (the node's API body budget).
+List<int> readBytes(List<int> bytes, bool gzipped, {int limit = 8 * 1024 * 1024, void Function(int)? reserve}) {
   if (!gzipped) return bytes;
   final result = BytesBuilder(copy: false);
-  final input = gzip.decoder.startChunkedConversion(_LimitedSink(result, limit));
+  final input = gzip.decoder.startChunkedConversion(_LimitedSink(result, limit, reserve));
   input
     ..add(bytes)
     ..close();
@@ -53,12 +54,14 @@ List<int> readBytes(List<int> bytes, bool gzipped, {int limit = 8 * 1024 * 1024}
 }
 
 class _LimitedSink implements Sink<List<int>> {
-  _LimitedSink(this.result, this.limit);
+  _LimitedSink(this.result, this.limit, this.reserve);
   final BytesBuilder result;
   final int limit;
+  final void Function(int)? reserve;
   @override
   void add(List<int> k) {
     if (result.length + k.length > limit) throw UploadTooLarge(limit);
+    reserve?.call(k.length);
     result.add(k);
   }
 
@@ -167,6 +170,11 @@ class Engine {
   static int multipartBudget = (int.tryParse(Platform.environment['IGNIS_UPLOAD_BUDGET_MB'] ?? '') ?? 64) * 1024 * 1024;
   static int _multipartInFlight = 0;
 
+  /// Total bytes of `api: true` bodies held at once (`IGNIS_API_BODY_BUDGET_MB`, 64 MB by default), on the wire and
+  /// after gzip inflation, reserved as they arrive; above it 503 with `Retry-After`.
+  static int apiBodyBudget = (int.tryParse(Platform.environment['IGNIS_API_BODY_BUDGET_MB'] ?? '') ?? 64) * 1024 * 1024;
+  static int _apiBodyInFlight = 0;
+
   /// Most fields in an x-www-form-urlencoded form (like [Upload.maxParts] for multipart).
   static const maxFormFields = 1000;
 
@@ -260,6 +268,13 @@ class Engine {
       {String? overridePath, Map<String, String>? extraParams}) async {
     final res = req.response;
     Future<void> Function()? errorEntry;
+    var apiBytes = 0; // share of [apiBodyBudget], held until the request is handled
+    void reserve(int n) {
+      if (_apiBodyInFlight + n > apiBodyBudget) throw const Overloaded();
+      _apiBodyInFlight += n;
+      apiBytes += n;
+    }
+
     try {
       final path = overridePath ?? req.uri.path;
 
@@ -373,6 +388,7 @@ class Engine {
               tooLarge = true;
               break;
             }
+            reserve(k.length);
             buffer.add(k);
           }
           if (tooLarge) return await apiError(res, HttpStatus.requestEntityTooLarge);
@@ -381,9 +397,9 @@ class Engine {
           try {
             final inflateLimit = max ?? 8 * 1024 * 1024;
             if (route.meta.binary) {
-              bodyBytes = readBytes(buffer.takeBytes(), gzipped, limit: inflateLimit);
+              bodyBytes = readBytes(buffer.takeBytes(), gzipped, limit: inflateLimit, reserve: reserve);
             } else {
-              body = readBody(buffer.takeBytes(), gzipped, limit: inflateLimit);
+              body = readBody(buffer.takeBytes(), gzipped, limit: inflateLimit, reserve: reserve);
             }
           } on UploadTooLarge {
             return await apiError(res, HttpStatus.requestEntityTooLarge);
@@ -618,6 +634,8 @@ class Engine {
         return apiError(res, HttpStatus.internalServerError);
       }
       await errorPage(res, HttpStatus.internalServerError, 'server', language: requestLanguage(req));
+    } finally {
+      _apiBodyInFlight -= apiBytes;
     }
   }
 

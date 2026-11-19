@@ -18,6 +18,12 @@
   start-up (`StateError` listing the routes): such routes skip CSRF while the session cookie authenticates them.
   Extend `PageEngine` and authenticate by a header token, or drop `api`/`cors` and keep CSRF.
 
+### Added
+
+- `IGNIS_API_BODY_BUDGET_MB` (64 MB by default): bodies of `api: true` routes share one node budget, counted
+  as they are read on the wire and again as gzip inflates them, released when the request ends (also on a
+  dropped connection). Over the budget the route answers `503` with `Retry-After`.
+
 ## 0.2.0 — 2026-11-19
 
 Hardening release after an external review and its follow-up. Details in `SECURITY.md`.
