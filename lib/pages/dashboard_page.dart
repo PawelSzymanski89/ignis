@@ -46,7 +46,7 @@ class DashboardPage extends AdminPage {
     put('my_patterns', mine.allow);
     put('my_deny', mine.deny);
 
-    // maps, not PermissionPackage objects: `p.name` on an object needs dart:mirrors, which an AOT build lacks
+    // maps, not PermissionPackage objects: `p.name` on an object outside the registry renders empty
     put('packages', [
       for (final p in packages) {'name': p.name, 'description': p.description, 'permissions': p.permissions}
     ]);

@@ -6,6 +6,7 @@ import 'package:bcrypt/bcrypt.dart';
 import 'package:ignis/ignis.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'package:postgres/postgres.dart' show Sql;
 import 'pg_guard.dart';
 
@@ -28,7 +29,7 @@ Future<ProcessResult> run(List<String> args, {required String key, String? previ
 
 Future<void> main(List<String> a) async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
+  EntityRegistry.build(ignisRegistry);
   _sections();
   if (a.isNotEmpty) {
     // child: what a node with only the current key reads

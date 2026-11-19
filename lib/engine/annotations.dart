@@ -7,8 +7,7 @@
 //    - where to redirect when the user may not see it (isAbleToSee=false),
 //    - which permission it requires.
 //
-//  Annotations must be `const`: ignis_builder evaluates them at build time (and the JIT
-//  dart:mirrors fallback reads them as class metadata).
+//  Annotations must be `const`: ignis_builder evaluates them at build time.
 // ============================================================================
 
 /// Declares a class as an Ignis page. The engine (registry.dart) scans all classes

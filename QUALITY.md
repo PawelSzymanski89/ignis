@@ -16,7 +16,8 @@ advice; each one is here because of a concrete incident.
 
 ## Hard rules
 
-- ⛔ **Zero codegen.** Everything through `dart:mirrors`. No `build_runner`.
+- ⛔ **One generator, no reflection.** The only codegen is `ignis_builder` → `lib/ignis_registry.g.dart`
+  (commit it, regenerate with `dart run build_runner build`). No `dart:mirrors`, no other builders.
 - **Every domain query filters by `service`.** The parameter is required, not defaulted —
   with a default value the code compiles and quietly shows someone else's data.
 - **Secrets only through `password`/`file` fields** in settings sections (`Section`/`Field`) —

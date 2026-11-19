@@ -11,6 +11,7 @@ import 'package:ignis/engine/orm.dart';
 import 'package:ignis/engine/schema.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'package:postgres/postgres.dart' show ServerException;
 import 'pg_guard.dart';
 
@@ -59,7 +60,7 @@ Future<void> unawaitedInRequest() async {
 
 Future<void> main(List<String> a) async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
+  EntityRegistry.build(ignisRegistry);
   if (a.firstOrNull == 'unawaited') return unawaitedInRequest();
   await Schema.sync();
   await Db.asSystem(() async {

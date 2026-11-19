@@ -3,6 +3,8 @@
 // Run: dart run test/api_cookie_auth_test.dart
 import 'package:ignis/ignis.dart';
 
+import 'registry_helper.dart';
+
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
   print('  ok — $description');
@@ -24,9 +26,18 @@ class StaffCors extends AdminPage {}
 class PlainApi extends PageEngine {}
 
 void main() {
+  final registry = testRegistry(pages: [
+    testPage(const Page('/v1/customer-x', api: true, methods: ['POST']), CustomerApi.new, cookieAuth: true),
+    testPage(const Page('/v1/staff-x', api: true, cors: true, methods: ['POST']), StaffApi.new,
+        cookieAuth: true, adminPage: true),
+    testPage(const Page('/customer-cors-x', cors: true, methods: ['POST']), CustomerCors.new, cookieAuth: true),
+    testPage(const Page('/admin/staff-cors-x', cors: true, methods: ['POST']), StaffCors.new,
+        cookieAuth: true, adminPage: true),
+    testPage(const Page('/v1/plain-x', api: true, methods: ['POST']), PlainApi.new),
+  ]);
   Object? error;
   try {
-    PageRegistry.build();
+    PageRegistry.build(registry);
   } catch (e) {
     error = e;
   }

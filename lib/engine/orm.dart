@@ -1,8 +1,7 @@
 // ============================================================================
 //  orm.dart — annotation-driven ODM
 // ----------------------------------------------------------------------------
-//  @Entity on a plain class → field metadata (EntityMeta: generated registry, or the
-//  dart:mirrors scan in JIT) → parameterized SQL.
+//  @Entity on a plain class → field metadata (EntityMeta, from the generated registry) → parameterized SQL.
 //  API (from PageEngine): saveEntity, readEntity<T>(id), readEntitys<T>().
 //  Primary key: @Entity(pk:) (`id` by default) — save/read/delete/insert/upsert use it.
 //
@@ -18,8 +17,6 @@ import 'package:postgres/postgres.dart' hide Type;
 
 import 'db.dart';
 import 'meta.dart';
-import 'mirrors_scan_stub.dart' if (dart.library.mirrors) 'mirrors_scan.dart';
-import 'registry.dart' show noRegistryError;
 import 'redis.dart';
 import 'crypto.dart';
 import 'schema.dart';
@@ -33,10 +30,9 @@ typedef EntityField = FieldMeta;
 class EntityRegistry {
   static final Map<String, EntityMeta> _byName = {};
 
-  /// Fills the registry from [registry]; without it (JIT only) from the dart:mirrors scan.
-  static void build([IgnisRegistry? registry]) {
-    final source = registry ?? scanWithMirrors();
-    if (source == null) throw StateError(noRegistryError);
+  /// Fills the registry from the generated [registry].
+  static void build(IgnisRegistry registry) {
+    final source = registry;
     _byName.clear();
     for (final meta in source.entities) {
       // the `entity:<Type>:<id>` mirror does not know the service, and Orm.read from the mirror bypasses RLS —

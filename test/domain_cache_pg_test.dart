@@ -9,6 +9,7 @@ import 'package:ignis/engine/schema.dart';
 import 'package:ignis/engine/tenant.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'package:postgres/postgres.dart' show Sql;
 import 'pg_guard.dart';
 
@@ -27,7 +28,7 @@ Future<String> domainKeys() async =>
 
 Future<void> main() async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
+  EntityRegistry.build(ignisRegistry);
   await Schema.sync();
   const domain = 'pipe-test.example';
   await Db.asSystem(() async {

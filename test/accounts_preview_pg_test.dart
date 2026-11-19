@@ -10,6 +10,7 @@ import 'package:postgres/postgres.dart' show Sql;
 import 'package:ignis/entities.dart';
 // ignore: unused_import
 import 'package:ignis/pages.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'pg_guard.dart';
 
 void check(String description, bool condition) {
@@ -32,8 +33,8 @@ Future<(int, String)> fetch(String path, String session) async {
 
 Future<void> main() async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
-  PageRegistry.build();
+  EntityRegistry.build(ignisRegistry);
+  PageRegistry.build(ignisRegistry);
   await Schema.sync();
   const without = 'fix44bez', z = 'fix44z';
   await Db.asSystem(() async {

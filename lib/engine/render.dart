@@ -11,8 +11,9 @@
 //  ESCAPE (anti-XSS): jinja 0.6.7 has NO autoescape — `{{ x }}` prints raw.
 //  So we escape ON OUR SIDE, before data reaches the template:
 //    • every String in the model (also in nested Map/List) — in `sanitize()`,
-//    • object fields (`p.name`): through dart:mirrors in JIT; in AOT only collection getters and `[]`
-//      (attribute_stub.dart) — pass Maps, not objects, to templates — in `_attribute()`,
+//    • object fields (`p.name`): through the generated attribute getters of the registry (JIT and AOT alike);
+//      objects with no generated getter fall back to collection getters and `[]` (attribute.dart) — pass Maps,
+//      not plain objects, to templates — in `_attribute()`,
 //    • anything else that reaches `{{ }}` (own toString(), exceptions, records), also inside collections
 //      and in the `string`/`join` filters — in `_finalize()`,
 //    • `striptags` is replaced: jinja's own unescapes its result.
@@ -32,7 +33,7 @@ import 'dart:io';
 import 'package:jinja/jinja.dart';
 import 'package:jinja/loaders.dart';
 
-import 'attribute_stub.dart' if (dart.library.mirrors) 'attribute_mirrors.dart';
+import 'attribute.dart';
 import 'engine.dart';
 import 'ignis.dart';
 import 'package_root.dart';
@@ -62,6 +63,11 @@ class Renderer {
 
   /// Template directories — the first one containing the file wins (app before package).
   static List<String> paths = [packageTemplates];
+
+  /// Generated attribute getters for `{{ obj.field }}` on registry classes: runtime type → (getter name →
+  /// read closure). Set once from the registry at start-up (Ignis.start). Empty: only collection getters and
+  /// `[]` work, so a plain object field renders empty (as before in AOT).
+  static Map<Type, Map<String, Object? Function(Object)>> attributeGetters = const {};
 
   static bool exists(String name) => paths.any((s) => File('$s/$name').existsSync());
 
@@ -114,16 +120,20 @@ class Renderer {
       .replaceAll("'", '&#39;');
   static final _tags = RegExp(r'(<!--[\s\S]*?-->|<[^>]*>)'), _spaces = RegExp(r'\s+');
 
-  /// `x.y` in a template. Maps are read directly (no mirrors and no
-  /// NoSuchMethodError exception on every dot), object fields through reflection — and those
-  /// we escape here, because `sanitize()` does not go inside objects.
+  /// `x.y` in a template. Maps are read directly (no NoSuchMethodError on every dot); object fields come from
+  /// the generated attribute getters ([attributeGetters]) of the registry, with collection getters / `[]` as a
+  /// fallback. We escape the result here, because `sanitize()` does not go inside objects.
   static Object? _attribute(String name, Object? object) {
     if (object is Map && object.containsKey(name)) return object[name];
     // a MapEntry from the model (or from iterating a model map) — key and value already escaped by sanitize()
     if (object is MapEntry && (name == 'key' || name == 'value')) return name == 'key' ? object.key : object.value;
-    // an object's collection field (List<String>, Map) must go through escaping too —
-    // a Map from the model is already clean, but a Map taken out of an object through mirrors is not.
-    return sanitize(readAttribute(name, object));
+    // a page/entity field (generated getter): its value — also collection fields — must go through escaping,
+    // because an object taken out of the model is not touched by sanitize().
+    if (object != null) {
+      final get = attributeGetters[object.runtimeType]?[name];
+      if (get != null) return sanitize(get(object));
+    }
+    return sanitize(collectionAttribute(name, object));
   }
 
   /// Escapes every String in the model; Html passes untouched.

@@ -10,6 +10,7 @@ import 'package:ignis/engine/schema.dart';
 import 'package:ignis/engine/session.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'pg_guard.dart';
 
 void check(String description, bool condition) {
@@ -40,7 +41,7 @@ Future<void> main() async {
   }
   if (skipDestructive()) return;
   // sesja czyta epokę konta z bazy (FIX-30) — tabela users musi istnieć
-  EntityRegistry.build();
+  EntityRegistry.build(ignisRegistry);
   await Schema.sync();
   final token = await Sessions.create('zrzut');
   check('surowy token nie jest kluczem Redisa', await Redis.get('sess:$token') == null);

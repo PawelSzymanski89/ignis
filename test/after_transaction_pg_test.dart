@@ -11,6 +11,7 @@ import 'package:ignis/engine/schema.dart';
 import 'package:ignis/engine/session.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'pg_guard.dart';
 
 void check(String description, bool condition) {
@@ -20,7 +21,7 @@ void check(String description, bool condition) {
 
 Future<void> main() async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
+  EntityRegistry.build(ignisRegistry);
   await Schema.sync();
   Future<bool> sessionAlive(String t) async => await Sessions.get(t) != null;
 

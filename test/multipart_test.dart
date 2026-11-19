@@ -4,8 +4,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ignis/ignis.dart';
-// ignore: unused_import
-import 'package:ignis/pages.dart';
+
+import 'registry_helper.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -51,7 +51,12 @@ Future<void> main() async {
       await receive(end(), 10, boundary: null) is FormatException);
 
   print('Engine:');
-  PageRegistry.build();
+  PageRegistry.build(testRegistry(pages: [
+    testPage(const Page('/test-bez-plikow', technical: true, methods: ['POST']), NoFiles.new),
+    testPage(const Page('/test-z-plikami', technical: true, methods: ['POST'], maxBody: 1024, noDb: true), WithFiles.new),
+    testPage(const Page('/test-panel-files', technical: true, methods: ['POST'], maxBody: 1024, noDb: true),
+        PanelFiles.new, cookieAuth: true, adminPage: true),
+  ]));
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   server.listen((req) => Engine.guarded(req, () => dispatch(req, const [])));
   final client = HttpClient();

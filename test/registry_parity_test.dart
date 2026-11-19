@@ -1,7 +1,9 @@
-// Parity: the generated lib/ignis_registry.g.dart describes every core @Entity / @Page exactly as the
-// dart:mirrors scan does (table, pk, fields + types, defaults, @Page, actions, synced, auth flags). Bez bazy.
-import 'package:ignis/engine/mirrors_scan.dart';
-import 'package:ignis/engine/registry_check.dart';
+// The generated lib/ignis_registry.g.dart against the expected core list (no reflection scan to compare with):
+// every core @Entity (table) and @Page (route, auth flags, actions), working closures, template getters and the
+// source fingerprint. Adding or renaming a core class means updating the lists below. Bez bazy.
+import 'dart:io';
+
+import 'package:ignis/engine/registry_fingerprint.dart';
 import 'package:ignis/ignis.dart';
 import 'package:ignis/ignis_registry.g.dart';
 
@@ -10,68 +12,85 @@ void check(String description, bool condition) {
   print('  ok — $description');
 }
 
-void main() {
-  final all = scanWithMirrors()!;
-  // only the package's own lib/ (this test file declares no @Entity / @Page)
-  bool core(String uri) => uri.startsWith('package:ignis/');
-  final scanned = IgnisRegistry(
-    entities: [
-      for (final e in all.entities)
-        if (core(e.library)) e
-    ],
-    pages: [
-      for (final p in all.pages)
-        if (core(p.library)) p
-    ],
-  );
-  final diff = registryDifferences(ignisRegistry, scanned);
-  for (final d in diff) {
-    print('    $d');
-  }
-  check('generated registry == mirrors scan (${scanned.entities.length} entities, ${scanned.pages.length} pages)',
-      diff.isEmpty);
-  check('every core entity and page is there', ignisRegistry.entities.length == 12 && ignisRegistry.pages.length == 11);
+const entities = {
+  'AuditLogEntry': 'audit_log',
+  'Domain': 'domains',
+  'FileRecord': 'files',
+  'Folder': 'folders',
+  'Package': 'packages',
+  'PackagePermission': 'package_permissions',
+  'Permission': 'permissions',
+  'Service': 'services',
+  'Setting': 'settings',
+  'User': 'users',
+  'UserPackage': 'user_packages',
+  'UserPermission': 'user_permissions',
+};
 
-  // the closures do what mirrors did: same defaults off a fresh instance, set/get round-trip
-  final byName = {for (final e in scanned.entities) e.typeName: e};
+// route, AdminPage (cookie auth), actions
+const pages = {
+  'AccountPage': ('/admin/account', true, ['password', 'sessions', 'totp_disable', 'totp_enable', 'totp_start']),
+  'AuditLogPage': ('/admin/audit-log', true, <String>[]),
+  'DashboardPage': ('/admin', true, <String>[]),
+  'FilesPage': ('/admin/files', true, ['file_delete', 'file_save', 'folder_delete', 'new_folder', 'upload']),
+  'HealthPage': ('/health', false, <String>[]),
+  'LegacyLogout': ('/logout', false, <String>[]),
+  'LoginPage': ('/admin/login', false, <String>[]),
+  'LogoutPage': ('/admin/logout', false, <String>[]),
+  'PermissionsPage': (
+    '/admin/permissions',
+    true,
+    ['package_add', 'package_delete', 'package_save', 'user_add', 'user_delete', 'user_save', 'user_totp_disable']
+  ),
+  'ServeFilePage': ('/files', false, <String>[]),
+  'SettingsPage': ('/admin/settings', true, ['file_delete', 'save']),
+};
+
+void main() {
+  final gotEntities = {for (final e in ignisRegistry.entities) e.typeName: e.table};
+  check('core entities and tables as expected (${entities.length})',
+      gotEntities.length == entities.length && entities.entries.every((e) => gotEntities[e.key] == e.value));
+  final gotPages = {for (final p in ignisRegistry.pages) p.typeName: p};
+  check('core pages as expected (${pages.length})', gotPages.length == pages.length && gotPages.keys.toSet().containsAll(pages.keys));
+  for (final MapEntry(key: name, value: (route, admin, actions)) in pages.entries) {
+    final p = gotPages[name]!;
+    check(
+        '$name: $route, adminPage=$admin, actions=$actions',
+        p.page.route == route &&
+            p.adminPage == admin &&
+            p.cookieAuth == admin &&
+            (p.actions.keys.toList()..sort()).join(',') == actions.join(','));
+  }
+  check('every entity is from package:ignis', ignisRegistry.entities.every((e) => e.library.startsWith('package:ignis/')));
+
   for (final g in ignisRegistry.entities) {
-    final m = byName[g.typeName]!;
     final fresh = g.ctor();
     check(
-        '${g.typeName}: fresh instance and defaults as in mirrors',
+        '${g.typeName}: constructor, field getters, defaults on a fresh instance',
         fresh.runtimeType == g.type &&
-            g.fields.every((f) => f.get(fresh) == m.fields.firstWhere((x) => x.name == f.name).get(m.ctor())) &&
-            g.fields.every((f) => f.defaultValue == m.fields.firstWhere((x) => x.name == f.name).defaultValue));
+            g.fields.where((f) => f.defaultValue != null).every((f) => f.get(fresh) == f.defaultValue));
   }
   final user = User();
   final username = ignisRegistry.entities.firstWhere((e) => e.typeName == 'User').fields.first;
   username.set(user, 'ala');
   check('setter/getter closures write and read the field', user.username == 'ala' && username.get(user) == 'ala');
-
   final routes = {for (final p in ignisRegistry.pages) p.page.route: p};
   check('page constructor builds the right class', routes['/admin/login']!.ctor() is LoginPage);
-  check('AdminPage flag without mirrors', routes['/admin']!.adminPage && !routes['/health']!.adminPage);
 
-  final wrongRoute = IgnisRegistry(entities: scanned.entities, pages: [
-    for (final p in scanned.pages)
-      p.typeName == 'HealthPage'
-          ? PageMeta(
-              typeName: p.typeName,
-              library: p.library,
-              page: const Page('/health-old', technical: true, noDb: true),
-              ctor: p.ctor,
-              actions: p.actions,
-              synced: p.synced,
-              cookieAuth: p.cookieAuth,
-              adminPage: p.adminPage)
-          : p
-  ]);
-  final stale = registryDifferences(wrongRoute, scanned, bothWays: false);
-  check('a changed @Page is reported',
-      stale.length == 1 && stale.single.contains('HealthPage') && stale.single.contains('/health-old'));
-  final missing =
-      registryDifferences(IgnisRegistry(entities: scanned.entities, pages: const []), scanned, bothWays: false);
-  check('pages missing from the generated registry are reported', missing.length == 11);
-  check('one-way check ignores classes only in the generated registry',
-      registryDifferences(ignisRegistry, const IgnisRegistry(entities: [], pages: []), bothWays: false).isEmpty);
+  print('template getters (attributes):');
+  final users = ignisRegistry.attributes[User]!;
+  check('User: every entity field is readable by name',
+      ignisRegistry.entities.firstWhere((e) => e.type == User).fields.every((f) => users.containsKey(f.name)));
+  check('the getter reads the instance', users['username']!(user) == 'ala');
+  check('every registry class has getters',
+      ignisRegistry.entities.every((e) => ignisRegistry.attributes.containsKey(e.type)) &&
+          ignisRegistry.pages.every((p) => ignisRegistry.attributes.containsKey(p.ctor().runtimeType)));
+
+  print('fingerprint:');
+  final f = ignisRegistry.fingerprint!;
+  check('package ignis, the generated file left out',
+      f.package == 'ignis' && !f.sources.contains(generatedRegistryPath) && f.sources.contains('lib/ignis.dart'));
+  final root = Directory.current;
+  check('the committed registry matches lib/ (else run dart run build_runner build)',
+      staleRegistryWarning(f, root: root) == null);
 }

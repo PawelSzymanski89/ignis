@@ -27,9 +27,8 @@ import 'config.dart';
 import 'storage.dart';
 import 'orm.dart';
 import 'redis.dart';
-import 'mirrors_scan_stub.dart' if (dart.library.mirrors) 'mirrors_scan.dart';
 import 'registry.dart';
-import 'registry_check.dart';
+import 'registry_fingerprint.dart';
 import 'render.dart';
 import 'schema.dart';
 import 'seed.dart';
@@ -105,32 +104,18 @@ class Ignis {
     ];
   }
 
-  /// The registry the node runs on:
-  ///  • [app] given — the core registry + [app]; in JIT it is compared with the dart:mirrors scan first, and a
-  ///    stale one (class added/changed after the last build) gives ONE warning (the differences, [buildCommand]
-  ///    and [watchCommand]) and the node runs on the scan instead,
-  ///  • no [app], JIT — the dart:mirrors scan (as before 0.3.0) and one warning line,
-  ///  • no [app], AOT — [StateError] ([noRegistryError]).
+  /// The registry the node runs on: the Ignis core registry merged with the app's generated [app]
+  /// (`Ignis.start(registry:)`). Missing → [StateError] ([noRegistryError]): the registry is mandatory now
+  /// (no runtime reflection), the engine cannot import the app's classes by itself.
+  ///
+  /// In JIT the app's [Fingerprint] is checked against the current lib/ sources, and a stale
+  /// lib/ignis_registry.g.dart (a class added/changed after the last build) gives ONE warning
+  /// ([buildCommand] / [watchCommand]) before the node runs on what it has. AOT has no sources — check skipped.
   static IgnisRegistry resolveRegistry(IgnisRegistry? app, {void Function(String) warn = _warn}) {
-    final scanned = scanWithMirrors();
-    if (app == null) {
-      if (scanned == null) throw StateError(noRegistryError);
-      warn('Ignis WARNING: no generated registry — scanning with dart:mirrors (JIT only; dart:mirrors is deprecated '
-          'and will be removed in a future Dart release). Add ignis_builder to dev_dependencies, run '
-          "`$buildCommand` and pass `registry: ignisRegistry` (import 'ignis_registry.g.dart') to Ignis.start.");
-      return scanned;
-    }
-    final merged = core.ignisRegistry.merge(app);
-    if (scanned != null) {
-      final diff = registryDifferences(merged, scanned, bothWays: false);
-      if (diff.isNotEmpty) {
-        warn('Ignis WARNING: the generated registry (ignis_registry.g.dart) is out of date — starting on the '
-            'dart:mirrors scan instead (JIT only; an AOT build would run the stale one). Run `$buildCommand`, or keep '
-            '`$watchCommand` running during development:\n  • ${diff.join('\n  • ')}');
-        return scanned;
-      }
-    }
-    return merged;
+    if (app == null) throw StateError(noRegistryError);
+    final stale = staleRegistryWarning(app.fingerprint);
+    if (stale != null) warn(stale);
+    return core.ignisRegistry.merge(app);
   }
 
   static void _warn(String line) => stdout.writeln(line);
@@ -139,8 +124,8 @@ class Ignis {
   /// [appAssets] — app static directories under `/assets/`, searched before `IGNIS_ASSETS`.
   /// [extraCsp] — sources added to the base Content-Security-Policy per directive ([Engine.buildCsp]).
   /// [registry] — the app's generated `ignisRegistry` (ignis_builder, `lib/ignis_registry.g.dart`); the core
-  /// pages and entities are added to it. Without it the node scans with dart:mirrors (JIT only, app pages and
-  /// entities must be imported in its `main`) — see [resolveRegistry].
+  /// pages and entities are added to it. Required: without it the node stops with [noRegistryError] (the engine
+  /// cannot discover the app's classes on its own) — see [resolveRegistry].
   static Future<void> start(
       {IgnisRegistry? registry,
       List<String> templates = const [],
@@ -185,10 +170,12 @@ class Ignis {
           'because secrets not yet re-encrypted by bin/rekey.dart would be unreadable');
     }
 
-    // Page and entity registry (once, at startup): generated, or the dart:mirrors scan in JIT.
+    // Page and entity registry (once, at startup) from the generated registry.
     final source = resolveRegistry(registry);
     PageRegistry.build(source);
     EntityRegistry.build(source);
+    // `{{ obj.field }}` on page/entity objects reads through the generated getters.
+    Renderer.attributeGetters = source.attributes;
     stdout.writeln('Ignis entities: ${EntityRegistry.names.join(', ')}');
 
     // AUTO-SCHEMA: tables and columns come from @Entity classes (IGNIS_SCHEMA=update|validate|none).

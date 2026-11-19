@@ -7,8 +7,9 @@ import 'package:ignis/engine/db.dart';
 import 'package:ignis/engine/orm.dart';
 import 'package:ignis/engine/schema.dart';
 import 'package:ignis/engine/seed.dart';
-// ignore: unused_import — encje rdzenia: EntityRegistry.build() bez rejestru = skan dart:mirrors (fallback JIT)
+// ignore: unused_import — encje rdzenia pochodzą z ignisRegistry; import dokumentuje, których używa test
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'package:postgres/postgres.dart' show Sql;
 import 'pg_guard.dart';
 
@@ -19,7 +20,7 @@ void check(String description, bool condition) {
 
 Future<void> main(List<String> a) async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
+  EntityRegistry.build(ignisRegistry);
   await Schema.sync();
   if (a.contains('zasiew')) {
     await Seed.seed();

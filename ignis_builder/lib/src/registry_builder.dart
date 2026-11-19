@@ -5,15 +5,18 @@
 //  and the app needs no stub file: every library under lib/ is resolved, and every
 //  public @Entity / @Page class in it lands in `ignisRegistry`. The output is a plain
 //  library (not a part): it imports the scanned libraries under prefixes and builds
-//  the registry from tear-offs and closures — no dart:mirrors at runtime.
+//  the registry from tear-offs and closures — no reflection at runtime.
 //
 //  Annotations are matched with TypeChecker (by declaring library), never by name.
 // ============================================================================
+
+import 'dart:convert';
 
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/constant/value.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:build/build.dart';
+import 'package:crypto/crypto.dart';
 import 'package:dart_style/dart_style.dart';
 import 'package:glob/glob.dart';
 import 'package:source_gen/source_gen.dart';
@@ -47,8 +50,18 @@ class RegistryBuilder implements Builder {
 
     final entities = <_Found>[];
     final pages = <_Found>[];
+    // Staleness fingerprint: every lib/**.dart (except the generated file) as the start-up check re-reads them,
+    // so adding, removing or editing ANY source there is noticed, not only the annotated classes.
+    final sources = <String>[];
+    final hash = <int>[];
     for (final id in ids) {
-      if (id.path == outputPath || !await buildStep.resolver.isLibrary(id)) continue;
+      if (id.path == outputPath) continue;
+      sources.add(id.path);
+      hash
+        ..addAll(utf8.encode('${id.path}\n'))
+        ..addAll(utf8.encode(await buildStep.readAsString(id)))
+        ..add(0x0a);
+      if (!await buildStep.resolver.isLibrary(id)) continue;
       final library = await buildStep.resolver.libraryFor(id);
       for (final cls in library.classes) {
         final isEntity = _entity.hasAnnotationOf(cls);
@@ -64,9 +77,10 @@ class RegistryBuilder implements Builder {
         if (isPage) pages.add(_Found(cls, id));
       }
     }
+    final fingerprint = (package: package, sources: sources, sum: sha256.convert(hash).toString());
 
     final emitter = _Emitter(buildStep.resolver);
-    final source = await emitter.emit(package, entities, pages);
+    final source = await emitter.emit(package, entities, pages, fingerprint);
     final formatted = DartFormatter(
       languageVersion: DartFormatter.latestLanguageVersion,
       pageWidth: 120,
@@ -98,7 +112,8 @@ class _Emitter {
 
   String _prefix(String uri) => _prefixes[uri]!;
 
-  Future<String> emit(String package, List<_Found> entities, List<_Found> pages) async {
+  Future<String> emit(String package, List<_Found> entities, List<_Found> pages,
+      ({String package, List<String> sources, String sum}) fingerprint) async {
     int byName(_Found a, _Found b) {
       final n = a.name.compareTo(b.name);
       return n != 0 ? n : a.uri.compareTo(b.uri);
@@ -137,7 +152,7 @@ class _Emitter {
       ..writeln('// ignore_for_file: type=lint')
       ..writeln('//')
       ..writeln('// ignis_builder: every @Entity / @Page class under lib/ of package:$package.')
-      ..writeln('// Regenerate after changing them: dart run build_runner build')
+      ..writeln('// Regenerate after changing anything under lib/: dart run build_runner build (or watch)')
       ..writeln()
       ..writeln("import '${importUri('package:ignis/engine/annotations.dart')}' as ig;")
       ..writeln("import '${importUri('package:ignis/engine/meta.dart')}' as ig;");
@@ -146,7 +161,7 @@ class _Emitter {
     }
     out
       ..writeln()
-      ..writeln('/// Pass to `Ignis.start(registry: $registryName)` — pages and entities without dart:mirrors.')
+      ..writeln('/// Pass to `Ignis.start(registry: $registryName)` — pages and entities, no reflection.')
       ..writeln('final ig.IgnisRegistry $registryName = ig.IgnisRegistry(')
       ..writeln('  entities: [');
     for (final e in entities) {
@@ -156,8 +171,44 @@ class _Emitter {
     for (final p in pages) {
       out.writeln(_pageMeta(p));
     }
-    out.writeln('  ],\n);');
+    out.writeln('  ],');
+    out.writeln(_attributes([...entities, ...pages]));
+    out.writeln(_fingerprint(fingerprint));
+    out.writeln(');');
     return out.toString();
+  }
+
+  /// `{{ obj.field }}` getters: runtime type → (public instance getter name → read closure). Covers every
+  /// readable, non-static public property (fields and getters, from base classes too) of each registry class,
+  /// so a template can read any of them in JIT and AOT without reflection.
+  String _attributes(List<_Found> classes) {
+    final out = StringBuffer('  attributes: {\n');
+    for (final f in classes) {
+      final ref = _ref(f);
+      final seen = <String>{};
+      final getters = <String>[];
+      for (InterfaceElement? c = f.cls; c != null; c = c.supertype?.element) {
+        if (c is! ClassElement) break;
+        for (final g in c.getters) {
+          final name = g.name;
+          if (name == null || g.isStatic || g.isPrivate || name == 'hashCode' || name == 'runtimeType') continue;
+          if (!seen.add(name)) continue;
+          getters.add('${_str(name)}: (o) => (o as $ref).$name');
+        }
+      }
+      out.writeln('    $ref: {${getters.join(', ')}},');
+    }
+    out.write('  },');
+    return out.toString();
+  }
+
+  String _fingerprint(({String package, List<String> sources, String sum}) f) {
+    final sources = f.sources.map(_str).join(', ');
+    return '  fingerprint: const ig.Fingerprint(\n'
+        '    package: ${_str(f.package)},\n'
+        '    sources: [$sources],\n'
+        '    sum: ${_str(f.sum)},\n'
+        '  ),';
   }
 
   String _ref(_Found f) => '${_prefix(f.uri)}.${f.name}';

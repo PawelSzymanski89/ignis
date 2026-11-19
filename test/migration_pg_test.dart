@@ -5,8 +5,9 @@
 import 'package:ignis/engine/db.dart';
 import 'package:ignis/engine/orm.dart';
 import 'package:ignis/engine/schema.dart';
-// ignore: unused_import — core entities: EntityRegistry.build() without a registry = dart:mirrors scan (JIT fallback)
+// ignore: unused_import — core entities come from ignisRegistry; this import documents which ones the test uses
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'package:postgres/postgres.dart' show Sql;
 import 'pg_guard.dart';
 
@@ -64,7 +65,7 @@ const _oldSchema = [
 
 Future<void> main() async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
+  EntityRegistry.build(ignisRegistry);
   await Db.asSystem(() async {
     final c = await Db.connect();
     for (final q in _oldSchema) {

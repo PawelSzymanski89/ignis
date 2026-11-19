@@ -1,7 +1,7 @@
 name: ignis_builder
 description: >-
   build_runner builder for Ignis Web Engine — generates lib/ignis_registry.g.dart (entities, pages,
-  actions, synced fields) so the engine runs without dart:mirrors (AOT, dart compile exe).
+  actions, synced fields) the engine needs (JIT and AOT, dart compile exe).
 publish_to: none
 version: 0.3.0
 repository: https://github.com/PawelSzymanski89/ignis
@@ -14,6 +14,8 @@ environment:
 dependencies:
   analyzer: any
   build: any
+  # sha256 of the lib/ sources → the staleness fingerprint written into the generated registry.
+  crypto: any
   dart_style: any
   glob: any
   source_gen: any

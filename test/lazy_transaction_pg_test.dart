@@ -8,6 +8,7 @@ import 'package:ignis/ignis.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
 import 'pg_guard.dart';
+import 'registry_helper.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -42,8 +43,12 @@ Future<void> main() async {
     stderr.write(r.stderr);
     exit(r.exitCode);
   }
-  EntityRegistry.build();
-  PageRegistry.build();
+  final registry = testRegistry(pages: [
+    testPage(const Page('/test-bez-zapytan', technical: true), NoQueries.new),
+    testPage(const Page('/test-przeciazenie', technical: true), OverloadedPage.new),
+  ]);
+  EntityRegistry.build(registry);
+  PageRegistry.build(registry);
   await Schema.sync();
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   server.listen((req) => Engine.guarded(req, () => dispatch(req, const [])));

@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:ignis/engine/annotations.dart';
 import 'package:ignis/engine/orm.dart';
 
+import 'registry_helper.dart';
+
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
   print('  ok — $description');
@@ -24,7 +26,13 @@ Future<void> main() async {
   final rls = await Process.run(Platform.resolvedExecutable, ['run', 'test/fixtures/cached_rls.dart']);
   check('@Cached on an RLS table without a service column (user_packages) → StateError',
       '${rls.stdout}'.contains('REFUSED') && '${rls.stdout}'.contains('CachedUserPackage'));
-  EntityRegistry.build();
+  EntityRegistry.build(testRegistry(entities: [
+    testEntity(const Entity('test_slownik'), TestDictionary, TestDictionary.new, [
+      FieldMeta('id', int, (o) => (o as TestDictionary).id, (o, v) => (o as TestDictionary).id = v as int?),
+      FieldMeta('name', String, (o) => (o as TestDictionary).name, (o, v) => (o as TestDictionary).name = v as String,
+          defaultValue: ''),
+    ], cached: true, ttl: 60)
+  ]));
   final m = EntityRegistry.byType(TestDictionary);
   check('@Cached bez service przechodzi, ttl w metadanych', m.cached && m.ttl == 60);
   print('\nALL PASSED');

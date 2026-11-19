@@ -5,6 +5,8 @@ import 'dart:io';
 
 import 'package:ignis/ignis.dart';
 
+import 'registry_helper.dart';
+
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
   print('  ok — $description');
@@ -38,7 +40,7 @@ Future<void> main(List<String> args) async {
     }
     return;
   }
-  PageRegistry.build();
+  PageRegistry.build(testRegistry(pages: [testPage(const Page('/v8/x', api: true), ApiPage.new)]));
   check('default limit is 512', Engine.maxInFlight == 512);
   Engine.maxInFlight = 1;
   final hold = Completer<void>(), entered = Completer<void>();

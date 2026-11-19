@@ -2,6 +2,8 @@
 // Uruchomienie: dart run test/registry_test.dart
 import 'package:ignis/ignis.dart';
 
+import 'registry_helper.dart';
+
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
   print('  ok — $description');
@@ -11,7 +13,7 @@ void check(String description, bool condition) {
 class AppPage extends PageEngine {}
 
 void main() {
-  PageRegistry.build();
+  PageRegistry.build(testRegistry(pages: [testPage(const Page('/test-aplikacji'), AppPage.new)]));
   print('rejestr stron:');
   check('strona aplikacji zarejestrowana', PageRegistry.match('/test-aplikacji') != null);
   check('strony rdzenia z barrela też', PageRegistry.routes.contains('/admin/login'));

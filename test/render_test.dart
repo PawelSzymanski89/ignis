@@ -23,6 +23,10 @@ class Shout {
 }
 
 void main() {
+  // what ignis_builder generates for a registry class (here by hand: Obj is a test class)
+  Renderer.attributeGetters = {
+    Obj: {'name': (o) => (o as Obj).name, 'list': (o) => (o as Obj).list, 'map': (o) => (o as Obj).map},
+  };
   String r(String tpl, Map<String, Object?> model) =>
       Environment(getAttribute: Renderer.env.getAttribute, finalize: Renderer.env.finalize, filters: Renderer.env.filters)
           .fromString(tpl)
@@ -37,7 +41,7 @@ void main() {
       r('{{ x }}', {'x': '/admin/files?f=/a/'}) == '/admin/files?f=/a/');
   check('zagnieżdżona mapa i lista',
       r('{{ m.a }}|{{ l[0] }}', {'m': {'a': '<b>'}, 'l': ['<i>']}) == '&lt;b&gt;|&lt;i&gt;');
-  check('pole obiektu przez mirrors',
+  check('pole obiektu przez wygenerowany getter',
       r('{{ o.name }}', {'o': Obj()}) == '&lt;i&gt;obiekt&lt;/i&gt;');
   check('pola-kolekcje obiektu też escapowane (nie tylko String)',
       r('{{ o.list[0] }}|{{ o.map.k }}', {'o': Obj()}) == '&lt;b&gt;|&lt;u&gt;');
@@ -51,6 +55,7 @@ void main() {
       r('{% for e in m %}{{ e.key }}={{ e.value }}{% endfor %}', {'m': {'<i>': '<b>'}}) == '&lt;i&gt;=&lt;b&gt;');
   check('FIX-50: lookup po kluczu ze zwykłych znaków dalej działa', r('{{ m.a_b }}', {'m': {'a_b': 'x'}}) == 'x');
   check('length na mapie dalej działa', r('{{ m.length }}', {'m': {'a': 1, 'b': 2}}) == '2');
+  check('obiekt spoza rejestru → pusto', r('[{{ s.name }}]', {'s': Shout()}) == '[]');
 
   print('HARD-L.6 — values that used to print raw:');
   const x = '<img src=x onerror=1>';

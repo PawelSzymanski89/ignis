@@ -13,6 +13,7 @@ import 'package:ignis/engine/schema.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
 import 'pg_guard.dart';
+import 'registry_helper.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -29,7 +30,15 @@ class MirrorRow {
 
 Future<void> main() async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
+  EntityRegistry.build(testRegistry(entities: [
+    testEntity(const Entity('test_mirror', pk: 'code'), MirrorRow, MirrorRow.new, [
+      FieldMeta('code', String, (o) => (o as MirrorRow).code, (o, v) => (o as MirrorRow).code = v as String,
+          defaultValue: ''),
+      FieldMeta('name', String, (o) => (o as MirrorRow).name, (o, v) => (o as MirrorRow).name = v as String,
+          defaultValue: ''),
+      FieldMeta('at', DateTime, (o) => (o as MirrorRow).at, (o, v) => (o as MirrorRow).at = v as DateTime?),
+    ], cached: true)
+  ]));
   await Schema.sync();
   await Db.asSystem(() async => (await Db.connect()).execute('DELETE FROM test_mirror'));
   for (final k in ['x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7']) {

@@ -9,6 +9,7 @@ import 'package:ignis/ignis.dart';
 import 'package:postgres/postgres.dart' show Sql;
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'pg_guard.dart';
 
 void check(String description, bool condition) {
@@ -36,8 +37,8 @@ Future<String> task(String method, String path, [Map<String, String>? fields]) a
 
 Future<void> main() async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
-  PageRegistry.build();
+  EntityRegistry.build(ignisRegistry);
+  PageRegistry.build(ignisRegistry);
   await Schema.sync();
   late int u;
   await Db.asSystem(() async {

@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ignis/ignis.dart';
-// ignore: unused_import
-import 'package:ignis/pages.dart';
+
+import 'registry_helper.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -34,7 +34,11 @@ Future<void> main() async {
     exitCode = await p.exitCode;
     return;
   }
-  PageRegistry.build();
+  PageRegistry.build(testRegistry(pages: [
+    testPage(const Page('/v1/zdarzenia', api: true, methods: ['POST']), ApiTest.new),
+    testPage(const Page('/fix37/api/x', api: true, noDb: true), ApiUnderNeighbor.new),
+    testPage(const Page('/fix37/formularz', noDb: true), NeighborForm.new),
+  ]));
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   server.listen((req) => Engine.guarded(req, () => dispatch(req, const [])));
   final client = HttpClient();

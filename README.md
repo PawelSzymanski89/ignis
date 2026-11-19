@@ -156,8 +156,7 @@ second factor is built into the panel.
 > [!NOTE]
 > Since 0.3.0 pages and entities come from a generated registry (`lib/ignis_registry.g.dart`, built by
 > `ignis_builder`), so Ignis runs both on the Dart VM (`dart run`) and as an AOT binary (`dart compile exe`).
-> In JIT an app without the registry still works through `dart:mirrors` — deprecated since Dart 3.14 and
-> "will be removed in a future release" (dart-lang/sdk#44489); that fallback goes away with it.
+> The registry is mandatory: Ignis does not use `dart:mirrors` at all.
 
 ## Quick start
 
@@ -218,8 +217,8 @@ dev_dependencies:
 ```
 
 ```bash
-dart run build_runner build --delete-conflicting-outputs   # writes lib/ignis_registry.g.dart — commit it
-dart run build_runner watch                                 # during development: rebuilds after every save
+dart run build_runner build   # writes lib/ignis_registry.g.dart — commit it
+dart run build_runner watch   # during development: rebuilds after every save
 ```
 
 ```dart
@@ -252,19 +251,21 @@ Future<void> main() => Ignis.start(
   no stub file) reads **every `.dart` file under `lib/`**: a new page or entity is picked up by the next build,
   no import or barrel needed. Classes under `bin/` or `test/` are not scanned — keep them in `lib/`. Private
   classes and private fields are not registered.
-- During development `dart run build_runner watch` is enough — it rebuilds the registry after every save. In
-  JIT (`dart run`) nothing more is required: without `registry:` the node scans with `dart:mirrors` (one
-  warning line at start-up), and a registry that is out of date (a page or entity added or changed after the
-  last build) gives one warning listing the differences and the build command, then the node runs on the
-  `dart:mirrors` scan. An AOT binary has no `dart:mirrors`: it runs on the registry it was compiled with, and
-  without one it stops with a `StateError` naming the command.
+- **`registry: ignisRegistry` is the one required line.** Without it the node stops at start-up with a
+  `StateError` listing the steps (dev_dependencies, `dart run build_runner build`, the `registry:` line). A
+  Dart library cannot import your app's files by itself, so this line is how the registry reaches Ignis.
+- During development `dart run build_runner watch` is enough — it rebuilds the registry after every save. The
+  registry carries a fingerprint of your `lib/**.dart`; in JIT (`dart run`) a registry that is out of date (any
+  file under `lib/` added, removed or edited since the last build) gives ONE warning with the build / watch
+  commands, and the node runs on the registry as generated. An AOT binary has no sources and skips the check.
 - Every page and entity needs an **unnamed constructor without required parameters** (the build fails with
   file, line and class otherwise). Column **defaults must be constant** (`String status = 'new';`): a
   non-constant initializer gives a build warning and no column default.
 - **AOT:** `dart compile exe bin/server.dart -o server`. The binary has no package config, so set
   `IGNIS_PACKAGE_ROOT` to a copy of the ignis package directory (its `templates/`, `i18n/`, `web/`); your own
-  `templates` / `appAssets` paths resolve against the working directory as before. In templates read object
-  fields from Maps (`p['name']`) — `{{ p.name }}` on a plain object needs `dart:mirrors` and renders empty in AOT.
+  `templates` / `appAssets` paths resolve against the working directory as before.
+- **Templates:** `{{ obj.field }}` works on Maps and on `@Page` / `@Entity` objects (getters generated into the
+  registry), in JIT and AOT alike. On any other object it renders empty — pass a Map (`{'name': p.name}`).
   `tool/aot_smoke.sh` compiles `bin/server.dart` and checks the binary against `dart run`.
 - Templates and static files are overridden by a file with the same name in your directories.
 
@@ -502,7 +503,7 @@ resulting policy for inspection.
 ## Testing
 
 ```bash
-dart run build_runner build --delete-conflicting-outputs   # after changing a core @Page / @Entity
+dart run build_runner build   # after changing anything under lib/ (registry_parity_test checks it)
 dart analyze
 for t in test/*_test.dart; do dart run "$t" || echo "FAIL $t"; done
 ```
@@ -521,7 +522,7 @@ Redis-only session tests check `IGNIS_REDIS_HOST` instead). Engineering rules ar
 ## Status
 
 Version **0.3.0** (unreleased) — a generated registry instead of `dart:mirrors`, so a node also runs AOT
-(`dart compile exe`); existing apps run unchanged. Earlier: 0.2.2 kept `dart:mirrors` on Dart 3.14+, 0.2.1 was a
+(`dart compile exe`); apps need a one-time step (generate the registry, pass `registry:`) — see the changelog. Earlier: 0.2.2 kept `dart:mirrors` on Dart 3.14+, 0.2.1 was a
 hardening follow-up to 0.2.0, after the first public release (0.1.0, extracted from a
 production multi-tenant panel) and 0.1.1 (configurable Content-Security-Policy). 0.2.0 made
 `IGNIS_TRUSTED_PROXIES` required (`none` = no reverse proxy); 0.2.1 refuses `api`/`cors` routes on cookie-

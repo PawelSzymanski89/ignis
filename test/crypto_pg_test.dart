@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:ignis/ignis.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'package:postgres/postgres.dart' show Sql;
 import 'pg_guard.dart';
 
@@ -16,7 +17,7 @@ void check(String description, bool condition) {
 
 Future<void> main() async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
+  EntityRegistry.build(ignisRegistry);
   await Schema.sync();
   Ignis.settingsSections = const [
     Section('test', 'Test', '', '', [Field('test.haslo', 'Hasło', type: FieldType.password)]),

@@ -1,6 +1,8 @@
 // Test Orm z kluczem głównym innym niż `id` — generowany SQL, bez bazy.
 import 'package:ignis/ignis.dart';
 
+import 'registry_helper.dart';
+
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
   print('  ok — $description');
@@ -19,7 +21,17 @@ class Note {
 }
 
 void main() {
-  EntityRegistry.build();
+  EntityRegistry.build(testRegistry(entities: [
+    testEntity(const Entity('tokens', pk: 'key'), Token, Token.new, [
+      FieldMeta('key', String, (o) => (o as Token).key, (o, v) => (o as Token).key = v as String, defaultValue: ''),
+      FieldMeta('token', String, (o) => (o as Token).token, (o, v) => (o as Token).token = v as String,
+          defaultValue: ''),
+    ]),
+    testEntity(const Entity('notatki'), Note, Note.new, [
+      FieldMeta('id', int, (o) => (o as Note).id, (o, v) => (o as Note).id = v as int?),
+      FieldMeta('tekst', String, (o) => (o as Note).tekst, (o, v) => (o as Note).tekst = v as String, defaultValue: ''),
+    ]),
+  ]));
   final t = EntityRegistry.byType(Token);
   check('pk z adnotacji', t.pk == 'key');
   check('nonId bez kolumny pk', t.nonId.map((f) => f.name).join(',') == 'token');

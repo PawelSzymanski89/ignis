@@ -3,8 +3,6 @@
 // ----------------------------------------------------------------------------
 //  The generated registry (ignis_builder → lib/ignis_registry.g.dart) finds every
 //  @Page under lib/ by itself; this barrel is the public import of the core pages.
-//  Without a generated registry (JIT fallback, dart:mirrors) only REACHABLE classes are
-//  seen — then this file must be imported by the program.
 // ============================================================================
 
 // panel administracyjny

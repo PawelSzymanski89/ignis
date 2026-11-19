@@ -13,6 +13,7 @@ import 'package:ignis/engine/schema.dart';
 import 'package:ignis/engine/session.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'pg_guard.dart';
 
 void check(String description, bool condition) {
@@ -22,7 +23,7 @@ void check(String description, bool condition) {
 
 Future<void> main() async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
+  EntityRegistry.build(ignisRegistry);
   await Schema.sync();
   const email = 'a|epoch@x.pl', p1 = 'Haslo-klienta-1', p2 = 'Haslo-klienta-2', p3 = 'Haslo-klienta-3';
   Future<CustomerSession?> session(String? t) => Db.inContext(1, () => CustomerAccounts.session(t, 1));

@@ -10,6 +10,7 @@ import 'package:ignis/engine/seed.dart';
 import 'package:postgres/postgres.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'pg_guard.dart';
 
 void check(String description, bool condition) {
@@ -20,7 +21,7 @@ void check(String description, bool condition) {
 Future<void> main() async {
   if (skipDestructive()) return;
   final env = Platform.environment;
-  EntityRegistry.build();
+  EntityRegistry.build(ignisRegistry);
   for (final run in [1, 2]) {
     final c = await Db.pool();
     await c.execute('DROP SCHEMA public CASCADE');

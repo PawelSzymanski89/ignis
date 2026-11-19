@@ -9,6 +9,8 @@ import 'dart:io';
 
 import 'package:ignis/ignis.dart';
 
+import 'registry_helper.dart';
+
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
   print('  ok — $description');
@@ -35,7 +37,11 @@ Future<void> main(List<String> args) async {
     stderr.write(r.stderr);
     exit(r.exitCode);
   }
-  PageRegistry.build();
+  PageRegistry.build(testRegistry(pages: [
+    testPage(
+        const Page('/v7/budget', api: true, technical: true, noDb: true, methods: ['POST'], maxBody: 4 * 1024 * 1024),
+        BudgetApi.new)
+  ]));
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   server.listen((req) => Engine.guarded(req, () => dispatch(req, const [])));
 

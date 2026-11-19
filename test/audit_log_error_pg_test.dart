@@ -9,6 +9,7 @@ import 'package:postgres/postgres.dart' show Sql;
 // ignore: unused_import
 import 'package:ignis/entities.dart';
 import 'pg_guard.dart';
+import 'registry_helper.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -29,8 +30,15 @@ class TestError extends AdminPage {
 
 Future<void> main() async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
-  PageRegistry.build();
+  final registry = testRegistry(pages: [
+    testPage(const Page('/admin/test-error', template: 'dashboard.html'), TestError.new, cookieAuth: true,
+        adminPage: true, actions: {
+      'psuj': [(o) => (o as TestError).breakIt()],
+      'dobrze': [(o) => (o as TestError).good()],
+    })
+  ]);
+  EntityRegistry.build(registry);
+  PageRegistry.build(registry);
   await Schema.sync();
   const login = 'dzblad';
   await Db.asSystem(() async {

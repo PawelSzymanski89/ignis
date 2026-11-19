@@ -7,8 +7,9 @@ import 'dart:io';
 import 'package:ignis/engine/db.dart';
 import 'package:ignis/engine/orm.dart';
 import 'package:ignis/engine/schema.dart';
-// ignore: unused_import — encje rdzenia: EntityRegistry.build() bez rejestru = skan dart:mirrors (fallback JIT)
+// ignore: unused_import — encje rdzenia pochodzą z ignisRegistry; import dokumentuje, których używa test
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'package:postgres/postgres.dart' show Sql;
 import 'pg_guard.dart';
 
@@ -22,7 +23,7 @@ Future<int> count() async =>
 
 Future<void> main(List<String> a) async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
+  EntityRegistry.build(ignisRegistry);
   if (a.contains('tylko-sync')) {
     await Schema.sync(); // proces potomny (FIX-13): rzuca → kod wyjścia ≠ 0
     exit(0);

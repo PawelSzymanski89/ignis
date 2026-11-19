@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:ignis/ignis.dart';
 
+import 'registry_helper.dart';
+
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
   print('  ok — $description');
@@ -13,7 +15,7 @@ void check(String description, bool condition) {
 class ApiTest extends PageEngine {}
 
 Future<void> main() async {
-  PageRegistry.build();
+  PageRegistry.build(testRegistry(pages: [testPage(const Page('/v9/zdarzenia', api: true, methods: ['POST']), ApiTest.new)]));
   check('strona api jest pod api', PageRegistry.underApi('/v9/zdarzenia'));
   check('nieznana ścieżka pod prefiksem api', PageRegistry.underApi('/v9/nie-ma'));
   check('sam prefiks bez segmentu to nie api', !PageRegistry.underApi('/v9'));

@@ -1,6 +1,9 @@
-// Ignis.resolveRegistry (Ignis.start): without a registry → mirrors scan + one warning line (JIT); with the
-// generated one → core + app, compared with mirrors; a stale one → one warning (differences + build/watch
-// commands) and the start goes on with the mirrors scan. Bez bazy.
+// Ignis.resolveRegistry (Ignis.start): no registry → StateError with the exact commands; a registry → core + app;
+// a fingerprint that no longer matches lib/ → ONE warning (build/watch commands) and the start goes on; no sources
+// on disk (as in AOT) → the check is skipped. Bez bazy.
+import 'dart:io';
+
+import 'package:ignis/engine/registry_fingerprint.dart';
 import 'package:ignis/ignis.dart';
 import 'package:ignis/ignis_registry.g.dart';
 
@@ -12,82 +15,80 @@ void check(String description, bool condition) {
 @Page('/test-start-app')
 class StartAppPage extends PageEngine {}
 
-@Entity('test_start_notes')
-class StartNote {
-  int? id;
-  String text = '';
-}
-
-PageMeta _appPage(String route) => PageMeta(
+PageMeta _appPage() => PageMeta(
     typeName: 'StartAppPage',
-    library: Uri.base.resolve('test/registry_start_test.dart').toString(),
-    page: Page(route),
+    library: 'test',
+    page: const Page('/test-start-app'),
     ctor: StartAppPage.new,
     actions: const {},
     synced: const [],
     cookieAuth: false,
     adminPage: false);
 
-EntityMeta _appEntity() => EntityMeta(
-    typeName: 'StartNote',
-    library: Uri.base.resolve('test/registry_start_test.dart').toString(),
-    type: StartNote,
-    table: 'test_start_notes',
-    pk: 'id',
-    cached: false,
-    ttl: 0,
-    unique: const [],
-    ctor: StartNote.new,
-    fields: [
-      FieldMeta('id', int, (o) => (o as StartNote).id, (o, v) => (o as StartNote).id = v as int?),
-      FieldMeta('text', String, (o) => (o as StartNote).text, (o, v) => (o as StartNote).text = v as String,
-          defaultValue: ''),
-    ]);
-
 void main() {
+  print('no registry:');
+  Object? error;
+  try {
+    Ignis.resolveRegistry(null);
+  } catch (e) {
+    error = e;
+  }
+  final m = '$error';
+  check('StateError', error is StateError);
+  check('…with the exact steps: dev_dependencies, build / watch, registry: line',
+      m.contains('ignis_builder') &&
+          m.contains('build_runner') &&
+          m.contains('dart run build_runner build') &&
+          m.contains('dart run build_runner watch') &&
+          m.contains('registry: ignisRegistry'));
+  check('no removed build_runner flag in the message', !m.contains('--delete-conflicting-outputs'));
+
+  print('registry:');
   final warnings = <String>[];
-  final legacy = Ignis.resolveRegistry(null, warn: warnings.add);
-  check('no registry (JIT): mirrors scan finds app and core pages',
-      legacy.pages.any((p) => p.page.route == '/test-start-app') && legacy.pages.any((p) => p.page.route == '/admin'));
-  check('no registry: exactly one warning line with the command',
-      warnings.length == 1 && !warnings.single.contains('\n') && warnings.single.contains(buildCommand));
-
-  final app = IgnisRegistry(entities: [_appEntity()], pages: [_appPage('/test-start-app')]);
-  warnings.clear();
-  final merged = Ignis.resolveRegistry(app, warn: warnings.add);
-  check(
-      'generated registry: core + app, no warning',
-      warnings.isEmpty &&
-          merged.pages.length == ignisRegistry.pages.length + 1 &&
-          merged.entities.length == ignisRegistry.entities.length + 1);
+  final merged = Ignis.resolveRegistry(IgnisRegistry(entities: const [], pages: [_appPage()]), warn: warnings.add);
+  check('core + app, no warning without a fingerprint',
+      warnings.isEmpty && merged.pages.length == ignisRegistry.pages.length + 1);
+  check('core attribute getters kept in the merge', merged.attributes.containsKey(User));
   PageRegistry.build(merged);
-  EntityRegistry.build(merged);
-  check('routes and entities come from it',
-      PageRegistry.match('/test-start-app') != null && EntityRegistry.byType(StartNote).table == 'test_start_notes');
+  check('app and core routes', PageRegistry.match('/test-start-app') != null && PageRegistry.match('/admin') != null);
 
-  warnings.clear();
-  final stale = Ignis.resolveRegistry(IgnisRegistry(entities: [_appEntity()], pages: [_appPage('/test-start-old')]),
-      warn: warnings.add);
-  check('a changed @Page in the code → the start goes on, with exactly one warning', warnings.length == 1);
-  check(
-      'the warning names the class, the old route and both build_runner commands',
-      warnings.single.contains('StartAppPage') &&
-          warnings.single.contains('/test-start-old') &&
-          warnings.single.contains('dart run build_runner build --delete-conflicting-outputs') &&
-          warnings.single.contains('dart run build_runner watch'));
-  check(
-      'the node runs on the dart:mirrors scan (current route, not the stale one)',
-      stale.pages.any((p) => p.page.route == '/test-start-app') &&
-          !stale.pages.any((p) => p.page.route == '/test-start-old') &&
-          stale.pages.any((p) => p.page.route == '/admin'));
+  print('fingerprint (JIT):');
+  final pkg = Directory.systemTemp.createTempSync('ignis_fp_');
+  Directory('${pkg.path}/lib/src').createSync(recursive: true);
+  File('${pkg.path}/lib/app.dart').writeAsStringSync('class A {}\n');
+  File('${pkg.path}/lib/src/b.dart').writeAsStringSync('class B {}\n');
+  File('${pkg.path}/lib/ignis_registry.g.dart').writeAsStringSync('// generated, not part of the sum\n');
+  final sources = librarySources(pkg);
+  check('sources: sorted lib/**.dart without the generated file',
+      sources.join(',') == 'lib/app.dart,lib/src/b.dart');
+  final fp = Fingerprint(
+      package: 'app', sources: sources, sum: fingerprintSum(sources, (p) => File('${pkg.path}/$p').readAsStringSync()));
+  check('current sources → no warning', staleRegistryWarning(fp, root: pkg) == null);
+  File('${pkg.path}/lib/ignis_registry.g.dart').writeAsStringSync('// regenerated\n');
+  check('the generated file itself does not count', staleRegistryWarning(fp, root: pkg) == null);
+  File('${pkg.path}/lib/src/b.dart').writeAsStringSync('class B { int x = 1; }\n');
+  final edited = staleRegistryWarning(fp, root: pkg);
+  check('an edited file → one line naming build and watch',
+      edited != null &&
+          !edited.contains('\n') &&
+          edited.contains('dart run build_runner build`') &&
+          edited.contains('dart run build_runner watch') &&
+          !edited.contains('--delete-conflicting-outputs'));
+  File('${pkg.path}/lib/c.dart').writeAsStringSync('class C {}\n');
+  check('an added file → reported as added', staleRegistryWarning(fp, root: pkg)!.contains('1 added'));
 
+  print('resolveRegistry with a stale fingerprint:');
   warnings.clear();
-  final missing = Ignis.resolveRegistry(IgnisRegistry(entities: const [], pages: [_appPage('/test-start-app')]),
+  final stale = Fingerprint(package: 'ignis', sources: ignisRegistry.fingerprint!.sources, sum: '0' * 64);
+  final started = Ignis.resolveRegistry(
+      IgnisRegistry(entities: const [], pages: [_appPage()], fingerprint: stale),
       warn: warnings.add);
-  check(
-      'an @Entity added after the last build → one warning naming it as missing, start on the scan',
-      warnings.length == 1 &&
-          warnings.single.contains('StartNote') &&
-          warnings.single.contains('missing') &&
-          missing.entities.any((e) => e.type == StartNote));
+  check('exactly one warning, and the start goes on with the registry as it is',
+      warnings.length == 1 && warnings.single.contains('out of date') && started.pages.any((p) => p.typeName == 'StartAppPage'));
+
+  print('no sources (AOT):');
+  check('a package not in the package config → check skipped',
+      staleRegistryWarning(Fingerprint(package: 'no_such_package_xyz', sources: const [], sum: '0' * 64)) == null);
+  check('no fingerprint → nothing to check', staleRegistryWarning(null) == null);
+  pkg.deleteSync(recursive: true);
 }

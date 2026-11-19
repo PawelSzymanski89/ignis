@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:ignis/ignis.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'package:postgres/postgres.dart' show ServerException;
 import 'pg_guard.dart';
 
@@ -39,7 +40,7 @@ Future<ProcessResult> node(String user, String password, String mode,
 
 Future<void> main(List<String> a) async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
+  EntityRegistry.build(ignisRegistry);
   if (a.firstOrNull == 'attack') {
     // what a compromised node on the runtime role would try: drop/alter the isolation itself
     final codes = <String>[];

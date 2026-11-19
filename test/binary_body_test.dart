@@ -4,8 +4,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ignis/ignis.dart';
-// ignore: unused_import
-import 'package:ignis/pages.dart';
+
+import 'registry_helper.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -23,7 +23,12 @@ Future<void> main() async {
     print('  pominięte — brak IGNIS_DB_HOST (Engine.handle bierze połączenie z Postgresa)');
     return;
   }
-  PageRegistry.build();
+  PageRegistry.build(testRegistry(pages: [
+    testPage(
+        const Page('/v1/test-binarne',
+            api: true, technical: true, methods: ['POST'], binary: true, maxBody: 3 * 1024 * 1024),
+        ApiBinary.new)
+  ]));
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   server.listen((req) => Engine.guarded(req, () => dispatch(req, const [])));
   final client = HttpClient();

@@ -10,6 +10,7 @@ import 'package:ignis/ignis.dart';
 import 'package:postgres/postgres.dart' show Sql;
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'package:ignis/ignis_registry.g.dart';
 import 'pg_guard.dart';
 
 void check(String description, bool condition) {
@@ -45,8 +46,8 @@ Future<void> signOutEverywhere(String login) => Db.inContext(0, () => Sessions.d
 
 Future<void> main() async {
   if (skipDestructive()) return;
-  EntityRegistry.build();
-  PageRegistry.build();
+  EntityRegistry.build(ignisRegistry);
+  PageRegistry.build(ignisRegistry);
   await Schema.sync();
   const plain = 'eprace', withCode = 'eprace2fa', password = 'Haslo-testowe-123';
   final secret = Totp.newSecret();

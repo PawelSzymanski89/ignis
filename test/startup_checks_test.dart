@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:ignis/engine/client_ip.dart';
 import 'package:ignis/ignis.dart';
+import 'package:ignis/ignis_registry.g.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -20,7 +21,7 @@ Future<String> start(Map<String, String> env) async {
 Future<void> main(List<String> a) async {
   if (a.isNotEmpty) {
     try {
-      await Ignis.start();
+      await Ignis.start(registry: ignisRegistry);
     } catch (e) {
       stdout.writeln('START FAILED: $e');
     }
