@@ -57,7 +57,8 @@ Hardening follow-up to 0.2.0 (HARD-L.13). Details in `SECURITY.md`.
   as they are read on the wire and again as gzip inflates them, released when the request ends (also on a
   dropped connection). Over the budget the route answers `503` with `Retry-After`.
 - `IGNIS_REQUIRE_RUNTIME_ROLE=1` (opt-in): a node whose database role owns any engine table refuses to start
-  instead of only warning; `tool/runtime_role.sql` holds the owner + runtime role recipe from `SECURITY.md`.
+  instead of only warning — checked before the schema sync, so a refused node runs no DDL; any value other than
+  empty or `1` also refuses to start. `tool/runtime_role.sql` holds the owner + runtime role recipe from `SECURITY.md`.
 - CI `scan` job: `gitleaks` on the pushed / PR commits and `osv-scanner` on `pubspec.lock` (actions pinned by
   SHA); exception policy in `SECURITY.md`, "CI scans".
 

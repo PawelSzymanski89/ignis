@@ -109,7 +109,8 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
 - Serve: `IGNIS_DB_USER=ignis_rt IGNIS_SCHEMA=validate`. `Schema.checkRls` and the seed work on this role;
   policy changes and DDL fail with `42501 must be owner`. `IGNIS_SCHEMA=update` on it fails the same way.
 - With `IGNIS_REQUIRE_RUNTIME_ROLE=1` a node whose role owns any engine table refuses to start (`StateError`),
-  in every `IGNIS_SCHEMA` mode — set it on serving nodes, not on the migrating one.
+  in every `IGNIS_SCHEMA` mode and before the schema sync (no DDL first) — set it on serving nodes, not on the
+  migrating one. A value other than empty or `1` also refuses to start.
 - A node whose role owns the engine tables while `IGNIS_SCHEMA` is not `update` logs a warning at start-up.
   In the default single-role setup with `IGNIS_SCHEMA=update` (the default) there is no warning — that role
   owns the tables by design. A superuser or `BYPASSRLS` role is not warned about but refused (above).

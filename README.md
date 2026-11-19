@@ -412,7 +412,7 @@ All configuration comes from environment variables read by the engine. The requi
 | `IGNIS_REDIS_TLS` | — | `1` = TLS to Redis, verified against system CAs |
 | `IGNIS_PORT` | `8080` | HTTP listen port |
 | `IGNIS_NODE` | `node` | node name in logs, locks and the audit log |
-| `IGNIS_REQUIRE_RUNTIME_ROLE` | unset | `1` = refuse to start when the database role owns engine tables (serving nodes on a runtime role; `tool/runtime_role.sql`) |
+| `IGNIS_REQUIRE_RUNTIME_ROLE` | unset | `1` = refuse to start (before any DDL) when the database role owns engine tables (serving nodes on a runtime role; `tool/runtime_role.sql`); any other non-empty value refuses to start |
 | `IGNIS_SCHEMA` | `update` | `update` creates tables and columns, `validate` and `none` only check. Serving nodes: `validate` on a runtime role without table ownership ([SECURITY.md](SECURITY.md#runtime-database-role)) |
 | `IGNIS_ASSETS` | `web/assets` | directory with the theme's static files (`/assets/…`) |
 | `IGNIS_TRUSTED_PROXIES` | **required** | IPs/CIDRs whose `X-Forwarded-For` is trusted; `none` (any case) = no reverse proxy. Unset, empty, a non-address entry or a `/0` prefix stops the node |

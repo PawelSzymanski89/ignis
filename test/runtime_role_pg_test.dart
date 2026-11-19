@@ -26,13 +26,15 @@ ALTER DEFAULT PRIVILEGES FOR ROLE ignis_app IN SCHEMA public GRANT USAGE ON SEQU
 const warning = 'owns the engine tables';
 
 /// Child: schema sync + seed as a node would run them at start-up, then a write under RLS.
-Future<ProcessResult> node(String user, String password, String mode, {bool requireRuntimeRole = false}) => Process.run(
+Future<ProcessResult> node(String user, String password, String mode,
+        {bool requireRuntimeRole = false, String? requireValue}) =>
+    Process.run(
     Platform.resolvedExecutable, [Platform.script.toFilePath(), 'node'],
     environment: {
       'IGNIS_DB_USER': user,
       'IGNIS_DB_PASS': password,
       'IGNIS_SCHEMA': mode,
-      if (requireRuntimeRole) 'IGNIS_REQUIRE_RUNTIME_ROLE': '1',
+      if (requireRuntimeRole || requireValue != null) 'IGNIS_REQUIRE_RUNTIME_ROLE': requireValue ?? '1',
     });
 
 Future<void> main(List<String> a) async {
@@ -104,7 +106,23 @@ Future<void> main(List<String> a) async {
   check('HARD-L.13.8: table owner with IGNIS_REQUIRE_RUNTIME_ROLE=1 → refused with StateError',
       r.exitCode != 0 && !'${r.stdout}'.contains('STARTED') &&
           '${r.stderr}'.contains('Bad state: IGNIS_REQUIRE_RUNTIME_ROLE=1'));
+  // HARD-L.14.4: the check runs before Schema sync — a refused owner node changes no schema
+  Future<bool> hasColumn() async => (await Db.asSystem(() async => (await (await Db.connect()).execute(
+          "SELECT count(*) FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'last_login'"))
+      .first[0])) == 1;
+  await Db.asSystemSession(() async => (await Db.connect()).execute('ALTER TABLE users DROP COLUMN last_login'));
+  r = await node(owner, ownerPassword, 'update', requireRuntimeRole: true);
+  check('table owner + IGNIS_SCHEMA=update + IGNIS_REQUIRE_RUNTIME_ROLE=1 → refused',
+      r.exitCode != 0 && '${r.stderr}'.contains('Bad state: IGNIS_REQUIRE_RUNTIME_ROLE=1'));
+  check('…before any DDL (the missing column was not added)', !await hasColumn());
+  r = await node('ignis_rt', 'ignisrt', 'validate', requireValue: 'true');
+  check('IGNIS_REQUIRE_RUNTIME_ROLE other than empty / "1" → refused',
+      r.exitCode != 0 && '${r.stderr}'.contains('IGNIS_REQUIRE_RUNTIME_ROLE must be empty or 1'));
+  await Db.close();
   r = await node(owner, ownerPassword, 'update');
+  check('…the migrating owner adds the column back', r.exitCode == 0 && await hasColumn());
+  r = await node('ignis_rt', 'ignisrt', 'validate', requireValue: '');
+  check('IGNIS_REQUIRE_RUNTIME_ROLE empty = off', r.exitCode == 0 && '${r.stdout}'.contains('STARTED'));
   check('table owner migrating (update) — no warning', r.exitCode == 0 && !'${r.stdout}${r.stderr}'.contains(warning));
   print('\nALL PASSED');
   exit(0);

@@ -283,14 +283,19 @@ class Schema {
   /// Brings the database schema in line with the @Entity classes.
   static Future<void> sync() async {
     final mode = Platform.environment['IGNIS_SCHEMA'] ?? 'update';
+    final requireRuntimeRole = Platform.environment['IGNIS_REQUIRE_RUNTIME_ROLE'] ?? '';
+    if (requireRuntimeRole != '' && requireRuntimeRole != '1') {
+      throw StateError('IGNIS_REQUIRE_RUNTIME_ROLE must be empty or 1, got "$requireRuntimeRole" — the node will not start');
+    }
     await underStartLock(() async {
       final c = await Db.connect();
-      if (mode != 'none') await _sync(mode);
-      if (Platform.environment['IGNIS_REQUIRE_RUNTIME_ROLE'] == '1' && await _ownsTables(c)) {
+      // before the sync: a refused node must not migrate first
+      if (requireRuntimeRole == '1' && await _ownsTables(c)) {
         throw StateError('IGNIS_REQUIRE_RUNTIME_ROLE=1, but the database role owns the engine tables — run this node '
             'on a runtime role with DML grants only and IGNIS_SCHEMA=validate (tool/runtime_role.sql, SECURITY.md, '
             '"Runtime database role"); the migrating node runs without IGNIS_REQUIRE_RUNTIME_ROLE');
       }
+      if (mode != 'none') await _sync(mode);
       if (mode != 'update' && await _ownsTables(c)) {
         stdout.writeln('Ignis: the database role owns the engine tables, but IGNIS_SCHEMA=$mode — a node that does not '
             'migrate should run on a role with DML grants only, so a compromised node cannot ALTER/DROP RLS policies '
