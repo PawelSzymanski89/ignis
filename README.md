@@ -404,7 +404,7 @@ All configuration comes from environment variables read by the engine. The requi
 | `IGNIS_DB_NAME` | `ignis` | database name |
 | `IGNIS_DB_USER` | `ignis` | database role — a plain role owning the tables; a superuser or `BYPASSRLS` role is refused at start-up (RLS would not apply) |
 | `IGNIS_DB_POOL` | `16` | connection pool size |
-| `IGNIS_DB_SSL` | `disable` | `verify-full` = TLS with certificate and host verification, `require` = TLS without verification; other values abort start-up |
+| `IGNIS_DB_SSL` | `disable` | `verify-full` = TLS with certificate and host verification, `require` = TLS without verification (warned about for a remote host); other values abort start-up |
 | `IGNIS_REDIS_HOST` | **required** | Redis host |
 | `IGNIS_REDIS_PORT` | `6379` | Redis port |
 | `IGNIS_REDIS_PASS` | — | Redis password |
@@ -413,7 +413,7 @@ All configuration comes from environment variables read by the engine. The requi
 | `IGNIS_NODE` | `node` | node name in logs, locks and the audit log |
 | `IGNIS_SCHEMA` | `update` | `update` creates tables and columns, `validate` and `none` only check. Serving nodes: `validate` on a runtime role without table ownership ([SECURITY.md](SECURITY.md#runtime-database-role)) |
 | `IGNIS_ASSETS` | `web/assets` | directory with the theme's static files (`/assets/…`) |
-| `IGNIS_TRUSTED_PROXIES` | **required** | IPs/CIDRs whose `X-Forwarded-For` is trusted; `none` = no reverse proxy. Unset or empty stops the node |
+| `IGNIS_TRUSTED_PROXIES` | **required** | IPs/CIDRs whose `X-Forwarded-For` is trusted; `none` (any case) = no reverse proxy. Unset, empty, a non-address entry or a `/0` prefix stops the node |
 | `IGNIS_TIMEOUT_S` | `120` | whole-request deadline in seconds |
 | `IGNIS_SHORT_TIMEOUT_S` | `15` | deadline for routes without `maxBody` (plain forms) |
 | `IGNIS_UPLOAD_BUDGET_MB` | `64` | total size of multipart bodies buffered at once |

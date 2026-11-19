@@ -12,8 +12,22 @@ import 'dart:typed_data';
 /// Trusted proxies from `IGNIS_TRUSTED_PROXIES` (IPs or CIDRs, comma-separated; `none` — no proxy).
 final List<String> trustedProxies = parseTrustedProxies(Platform.environment['IGNIS_TRUSTED_PROXIES'] ?? '');
 
-List<String> parseTrustedProxies(String raw) =>
-    raw.trim() == 'none' ? const [] : raw.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+List<String> parseTrustedProxies(String raw) => raw.trim().toLowerCase() == 'none'
+    ? const []
+    : raw.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+
+/// Why [entry] is not a usable proxy address (an IP, or a CIDR with a prefix of 1…32 / 1…128), or null when it is.
+/// A /0 would trust every client's X-Forwarded-For; a host name or a typo would silently trust nobody.
+String? trustedProxyEntryError(String entry) {
+  final [network, ...rest] = entry.split('/');
+  final b = _bytes(network);
+  if (b == null || rest.length > 1) return '`$entry` is not an IP address or CIDR';
+  if (rest.isEmpty) return null;
+  final bits = int.tryParse(rest.first);
+  if (bits == null || bits < 0 || bits > b.length * 8) return '`$entry` has an invalid prefix length';
+  if (bits == 0) return '`$entry` would trust X-Forwarded-For from every address';
+  return null;
+}
 
 /// Warning for the operator when [xff] came from a proxy on a private/loopback network and [trusted] is empty:
 /// all clients then have the proxy address, so 30 bad sign-in attempts lock sign-in for everyone,

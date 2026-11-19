@@ -191,7 +191,9 @@ Still delegated to the deployment: TLS termination and a trusted reverse proxy. 
 must not be exposed outside the application instances. When backend traffic leaves the private network,
 enable TLS with certificate verification: `IGNIS_DB_SSL=verify-full` (`require` encrypts without
 verifying), `IGNIS_S3_SSL=1`, `IGNIS_REDIS_TLS=1` (system CAs). An unknown `IGNIS_DB_SSL` value aborts
-start-up. The node warns at start-up for every backend host outside loopback with TLS off.
+start-up. The node warns at start-up for every backend host outside loopback with TLS off, and for a remote
+PostgreSQL with `IGNIS_DB_SSL=require` (no certificate check). Entries of `IGNIS_TRUSTED_PROXIES` must be IPs or
+CIDRs; a host name, a typo or a `/0` prefix stops the node.
 
 ### Sample reverse-proxy configuration
 

@@ -33,6 +33,14 @@ Future<void> main(List<String> a) async {
   check('an address — accepted', Ignis.trustedProxiesError({'IGNIS_TRUSTED_PROXIES': '10.0.0.0/8'}) == null);
   check('none mixed with addresses — refused',
       Ignis.trustedProxiesError({'IGNIS_TRUSTED_PROXIES': 'none,10.0.0.1'}) != null);
+  check('NONE / None — accepted, case-insensitive', Ignis.trustedProxiesError({'IGNIS_TRUSTED_PROXIES': 'NONE'}) == null &&
+      parseTrustedProxies(' None ').isEmpty);
+  check('IPv6 and IPv6 CIDR — accepted',
+      Ignis.trustedProxiesError({'IGNIS_TRUSTED_PROXIES': '::1, fd00::/8, 10.0.0.1/32'}) == null);
+  for (final bad in ['0.0.0.0/0', '::/0', '10.0.0.0/33', 'proxy.local', '10.0.0.1/x', '10.0.0.1/8/8', '10.0.0']) {
+    final e = Ignis.trustedProxiesError({'IGNIS_TRUSTED_PROXIES': '10.0.0.5,$bad'});
+    check('`$bad` — refused, the entry is named', e != null && e.contains('`$bad`'));
+  }
   check('none → no trusted proxies', parseTrustedProxies('none').isEmpty);
   check('a list is parsed', parseTrustedProxies(' 10.0.0.1, ::1 ').join('|') == '10.0.0.1|::1');
 
@@ -59,6 +67,14 @@ Future<void> main(List<String> a) async {
     'IGNIS_S3_HOST': 's3.internal', 'IGNIS_S3_SSL': '1',
   }).isEmpty);
   check('IGNIS_DB_SSL=disable counts as off', w({'IGNIS_DB_HOST': '10.1.1.1', 'IGNIS_DB_SSL': 'disable'}).length == 1);
+  final req = w({'IGNIS_DB_HOST': 'db.internal', 'IGNIS_DB_SSL': 'require'});
+  check('IGNIS_DB_SSL=require on a remote host — warning about the unverified certificate',
+      req.length == 1 && req.single.contains('not verified') && req.single.contains('verify-full'));
+  check('IGNIS_DB_SSL=require on loopback — no warning', w({'IGNIS_DB_HOST': '127.0.0.1', 'IGNIS_DB_SSL': 'require'}).isEmpty);
+  out = await start({'IGNIS_TRUSTED_PROXIES': '0.0.0.0/0'});
+  check('Ignis.start with IGNIS_TRUSTED_PROXIES=0.0.0.0/0 stops', out.contains('START FAILED') && out.contains('0.0.0.0/0'));
+  out = await start({'IGNIS_TRUSTED_PROXIES': 'NONE'});
+  check('Ignis.start with NONE gets past the check', out.contains('START FAILED') && out.contains('IGNIS_DB_HOST'));
   check('no S3 configured — nothing about S3', w({'IGNIS_DB_HOST': '127.0.0.1'}).isEmpty);
   out = await start({'IGNIS_TRUSTED_PROXIES': 'none', 'IGNIS_DB_HOST': 'db.invalid', 'IGNIS_DB_PASS': 'x'});
   check('Ignis.start prints the warning', out.contains('IGNIS_DB_SSL'));

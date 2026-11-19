@@ -18,6 +18,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
+import 'client_ip.dart';
 import 'db.dart';
 import 'audit_log.dart';
 import 'engine.dart';
@@ -67,8 +68,14 @@ class Ignis {
       return 'IGNIS_TRUSTED_PROXIES is not set — the node will not start. Behind a reverse proxy set it to the '
           "proxy's IPs/CIDRs (comma-separated); with clients connecting directly set IGNIS_TRUSTED_PROXIES=none.";
     }
-    if (v != 'none' && v.split(',').any((s) => s.trim() == 'none')) {
+    if (v.toLowerCase() == 'none') return null;
+    if (v.split(',').any((s) => s.trim().toLowerCase() == 'none')) {
       return 'IGNIS_TRUSTED_PROXIES=$v — `none` cannot be combined with addresses.';
+    }
+    final errors = parseTrustedProxies(v).map(trustedProxyEntryError).whereType<String>().toList();
+    if (errors.isNotEmpty) {
+      return 'IGNIS_TRUSTED_PROXIES=$v — ${errors.join('; ')}. The node will not start: use IPs or CIDRs of the '
+          'proxies (e.g. 10.0.0.5,10.1.0.0/16) or none.';
     }
     return null;
   }
@@ -86,6 +93,9 @@ class Ignis {
     return [
       if (remote(env['IGNIS_DB_HOST']) && (env['IGNIS_DB_SSL'] ?? 'disable') == 'disable')
         warn('PostgreSQL', env['IGNIS_DB_HOST']!, 'IGNIS_DB_SSL=verify-full'),
+      if (remote(env['IGNIS_DB_HOST']) && env['IGNIS_DB_SSL'] == 'require')
+        'Ignis WARNING: PostgreSQL at ${env['IGNIS_DB_HOST']} uses IGNIS_DB_SSL=require — encrypted, but the server '
+            'certificate is not verified (no protection against a man in the middle); set IGNIS_DB_SSL=verify-full.',
       if (remote(env['IGNIS_REDIS_HOST']) && env['IGNIS_REDIS_TLS'] != '1')
         warn('Redis', env['IGNIS_REDIS_HOST']!, 'IGNIS_REDIS_TLS=1'),
       if (remote(env['IGNIS_S3_HOST']) && env['IGNIS_S3_SSL'] != '1') warn('S3', env['IGNIS_S3_HOST']!, 'IGNIS_S3_SSL=1'),
