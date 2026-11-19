@@ -77,16 +77,20 @@ class DbSession {
 
   Future<Session> _session() async {
     _alive();
-    if (_raised > 0) {
-      // the transaction runs with the elevated context right now: only code inside the running block may query
-      final z = Zone.current[Db._raisedKey];
-      if (z is! _RaisedBlock || !z.active || !identical(z.session, this)) {
-        throw StateError('A request query ran while Db.asSystem/Db.asPlatform held the elevated context of the same '
-            'transaction (Future.wait or an un-awaited future); await the elevated block before other queries');
-      }
-    }
     if (_context != null) return _tx();
     return _connection ?? _poolRef!;
+  }
+
+  /// Called in the same synchronous step that puts a query on the wire (after every `await`, also the one opening
+  /// the transaction): while the transaction runs with the elevated context only code inside the running block may
+  /// query.
+  void _notOutsideRaised() {
+    if (_raised == 0) return;
+    final z = Zone.current[Db._raisedKey];
+    if (z is! _RaisedBlock || !z.active || !identical(z.session, this)) {
+      throw StateError('A request query ran while Db.asSystem/Db.asPlatform held the elevated context of the same '
+          'transaction (Future.wait or an un-awaited future); await the elevated block before other queries');
+    }
   }
 
   /// Transaction of the lazy session — opened once, on first use.
@@ -148,20 +152,30 @@ class DbSession {
     bool ignoreRows = false,
     QueryMode? queryMode,
     Duration? timeout,
-  }) async =>
-      (await _session()).execute(query,
-          parameters: parameters, ignoreRows: ignoreRows, queryMode: queryMode, timeout: timeout);
+  }) async {
+    final s = await _session();
+    _notOutsideRaised();
+    return s.execute(query, parameters: parameters, ignoreRows: ignoreRows, queryMode: queryMode, timeout: timeout);
+  }
 
   /// In a request transaction — a savepoint: an error in [fn] rolls back only its changes, and the rest
   /// of the request can go on (e.g. an audit log entry whose error is caught).
   Future<R> runTx<R>(Future<R> Function(TxSession session) fn,
       {TransactionSettings? settings}) async {
     final s = await _session();
+    _notOutsideRaised();
     if (s is! TxSession) {
       return s is Pool ? s.runTx(fn, settings: settings) : (s as Connection).runTx(fn, settings: settings);
     }
     final point = 'ignis_${_points++}';
     await s.execute('SAVEPOINT $point');
+    try {
+      _notOutsideRaised();
+    } catch (_) {
+      // RELEASE, not ROLLBACK TO: the block's set_config sent after the SAVEPOINT must stay
+      await s.execute('RELEASE SAVEPOINT $point');
+      rethrow;
+    }
     try {
       final r = await fn(s);
       await s.execute('RELEASE SAVEPOINT $point');
@@ -346,7 +360,7 @@ class Db {
 
   /// [body] with context [value] set locally in the transaction of session [s]; then the request context returns.
   /// The context covers the whole request transaction, so a query launched IN PARALLEL with [body] from outside it
-  /// (Future.wait, un-awaited future) throws [StateError] ([DbSession._session]) — always `await` a raised block
+  /// (Future.wait, un-awaited future) throws [StateError] ([DbSession._notOutsideRaised]) — always `await` a raised block
   /// before the rest (SECURITY.md, "Notes for app authors"). Raised blocks of one session run one after another, so an
   /// overlapping block cannot restore a context it read while another block was raised. Blocks nested in a
   /// still running block queue on that block and restore its context; a future that outlives its block counts
@@ -382,11 +396,12 @@ class Db {
   static Future<T> _raise<T>(DbSession s, String value, String restore, Future<T> Function() body) async {
     final tx = await s._tx();
     Future<void> set(String v) => tx.execute(r"SELECT set_config('" + serviceGuc + r"', $1, true)", parameters: [v]);
-    if (value != restore) await set(value);
+    // raised before set_config goes on the wire: a query from outside sent after it would run elevated
     s._raised++;
     final block = _RaisedBlock(s, value);
     final T result;
     try {
+      if (value != restore) await set(value);
       result = await runZoned(body, zoneValues: {_raisedKey: block});
     } catch (_) {
       block.active = false;

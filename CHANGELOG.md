@@ -75,6 +75,11 @@ Hardening follow-up to 0.2.0 (HARD-L.13). Details in `SECURITY.md`.
   Redis Cluster, and the session / permission cache cleanup after a password change quietly did nothing.
 - A customer password reset checks the password fingerprint on the token value its script consumed, not on an
   earlier read: a password change committed between the two now ends the link as well.
+- The elevated-block guard checks the query in the same synchronous step that sends it (after the `await` that
+  opens the request transaction, and again after `runTx`'s `SAVEPOINT`), and the block counts as raised before
+  its `set_config` is sent: a query issued just before the block, while the transaction was still opening, could
+  pass the check and then run with the elevated context. A refused un-awaited query ends its request with `500`
+  (the `Engine.guarded` zone), not the process.
 
 ## 0.2.0 — 2026-11-19
 

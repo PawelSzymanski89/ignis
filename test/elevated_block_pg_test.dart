@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:ignis/engine/db.dart';
+import 'package:ignis/engine/engine.dart';
 import 'package:ignis/engine/orm.dart';
 import 'package:ignis/engine/schema.dart';
 // ignore: unused_import
@@ -33,9 +34,33 @@ Future<String?> insertForeign() async {
   }
 }
 
-Future<void> main() async {
+/// Child: a request (Engine.guarded) leaves a query un-awaited while its elevated block runs.
+Future<void> unawaitedInRequest() async {
+  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  server.listen((req) => Engine.guarded(req, () => Db.inContext(1, () async {
+        await q('SELECT 1');
+        final entered = Completer<void>();
+        final block = Db.asSystem(() async {
+          entered.complete();
+          await pause(100);
+          return count();
+        });
+        await entered.future;
+        unawaited(count());
+        await block;
+      })));
+  final client = HttpClient();
+  final r = await (await client.get('127.0.0.1', server.port, '/')).close();
+  await r.drain<void>();
+  await pause(200);
+  stdout.writeln('status ${r.statusCode}, process alive');
+  exit(0);
+}
+
+Future<void> main(List<String> a) async {
   if (skipDestructive()) return;
   EntityRegistry.build();
+  if (a.firstOrNull == 'unawaited') return unawaitedInRequest();
   await Schema.sync();
   await Db.asSystem(() async {
     final c = await Db.connect();
@@ -209,6 +234,43 @@ Future<void> main() async {
     check('$variant: the block itself still sees every tenant, the request its own afterwards',
         inBlock == 2 && afterAll == 1);
   }
+
+  // HARD-L.14.6: a plain query issued just before the block raises the context — the transaction not open yet (the
+  // query passes the check, then waits for BEGIN together with the block), or open (the block's set_config is
+  // already on the wire): it runs with the tenant context or gets StateError, never with the elevated one
+  for (final open in [false, true]) {
+    for (final via in ['execute', 'runTx']) {
+      late Object? plain;
+      late int inBlock;
+      await Db.inContext(1, () async {
+        if (open) await q('SELECT 1');
+        final r = await Future.wait<Object?>([
+          () async {
+            try {
+              final c = await Db.connect();
+              const sql = "SELECT count(*) FROM settings WHERE key LIKE 'elev.%'";
+              return via == 'execute'
+                  ? (await c.execute(sql)).first[0]
+                  : await c.runTx((tx) async => (await tx.execute(sql)).first[0]);
+            } catch (e) {
+              return e;
+            }
+          }(),
+          Db.asSystem(count),
+        ]);
+        (plain, inBlock) = (r[0], r[1] as int);
+      });
+      check('${open ? 'open' : 'unopened'} transaction, $via: a query issued just before the block → '
+          'tenant rows or StateError, not every tenant ($plain)', plain == 1 || plain is StateError);
+      check('…the block sees every tenant', inBlock == 2);
+    }
+  }
+
+  // an un-awaited query refused with StateError ends the request (zone of Engine.guarded), not the process
+  final guarded = await Process.run(Platform.resolvedExecutable, [Platform.script.toFilePath(), 'unawaited']);
+  check('un-awaited StateError in a request zone: 500 for that request, the process lives (${guarded.stdout})'.trim(),
+      guarded.exitCode == 0 && '${guarded.stdout}'.contains('status 500, process alive') &&
+          '${guarded.stderr}'.contains('Bad state: A request query ran while'));
 
   await Db.asSystem(() async => (await Db.connect()).execute("DELETE FROM settings WHERE key LIKE 'elev.%'"));
   await Db.close();
