@@ -45,6 +45,9 @@ class EntityMeta {
   /// Simple class name (e.g. `User`) — the Redis mirror / lock key uses it.
   final String typeName;
 
+  /// URI of the declaring library (e.g. `package:ignis/entities/auth.dart`) — for start-up diagnostics.
+  final String library;
+
   /// The Dart [Type] of the entity class — registry lookup key for `byType<T>`.
   final Type type;
   final String table;
@@ -63,6 +66,7 @@ class EntityMeta {
 
   const EntityMeta({
     required this.typeName,
+    required this.library,
     required this.type,
     required this.table,
     required this.pk,
@@ -101,6 +105,9 @@ class PageMeta {
   /// Simple class name (e.g. `LoginPage`) — used in @Page(api/cors) refusal messages.
   final String typeName;
 
+  /// URI of the declaring library — for start-up diagnostics.
+  final String library;
+
   /// The @Page annotation (route/template/redirect/requires/…).
   final Page page;
 
@@ -123,6 +130,7 @@ class PageMeta {
 
   const PageMeta({
     required this.typeName,
+    required this.library,
     required this.page,
     required this.ctor,
     required this.actions,
@@ -139,12 +147,17 @@ class IgnisRegistry {
   final List<PageMeta> pages;
   const IgnisRegistry({required this.entities, required this.pages});
 
-  /// Merges another registry on top of this one (app registry + Ignis core registry).
-  /// Later entries win on duplicate entity type / page route.
-  IgnisRegistry merge(IgnisRegistry other) => IgnisRegistry(
-        entities: [...entities, ...other.entities],
-        pages: [...pages, ...other.pages],
-      );
+  /// Merges [other] into this registry (e.g. the Ignis core registry + the app's). A class present in both
+  /// (same library and name) is taken once, from [other].
+  IgnisRegistry merge(IgnisRegistry other) {
+    final e = {
+      for (final m in [...entities, ...other.entities]) '${m.library}#${m.typeName}': m
+    };
+    final p = {
+      for (final m in [...pages, ...other.pages]) '${m.library}#${m.typeName}': m
+    };
+    return IgnisRegistry(entities: e.values.toList(), pages: p.values.toList());
+  }
 }
 
 /// The non-null static type of a field, from a getter closure: `ignisFieldType((User o) => o.id)` is `int` for

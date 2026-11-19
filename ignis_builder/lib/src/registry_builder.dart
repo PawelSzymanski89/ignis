@@ -55,7 +55,9 @@ class RegistryBuilder implements Builder {
         final isPage = _page.hasAnnotationOf(cls);
         if (!isEntity && !isPage) continue;
         if (cls.isPrivate) {
-          log.warning('${_where(cls)}: private class ${cls.name} is not registered (the generated code cannot reach it)');
+          log.warning(
+            '${_where(cls)}: private class ${cls.name} is not registered (the generated code cannot reach it)',
+          );
           continue;
         }
         if (isEntity) entities.add(_Found(cls, id));
@@ -65,7 +67,10 @@ class RegistryBuilder implements Builder {
 
     final emitter = _Emitter(buildStep.resolver);
     final source = await emitter.emit(package, entities, pages);
-    final formatted = DartFormatter(languageVersion: DartFormatter.latestLanguageVersion, pageWidth: 120).format(source);
+    final formatted = DartFormatter(
+      languageVersion: DartFormatter.latestLanguageVersion,
+      pageWidth: 120,
+    ).format(source);
     await buildStep.writeAsString(AssetId(package, outputPath), formatted);
   }
 }
@@ -84,8 +89,7 @@ String _where(Element e) {
   return '${span.sourceUrl}:${span.start.line + 1}';
 }
 
-Never _fail(Element e, String message) =>
-    throw InvalidGenerationSourceError('${_where(e)}: $message', element: e);
+Never _fail(Element e, String message) => throw InvalidGenerationSourceError('${_where(e)}: $message', element: e);
 
 class _Emitter {
   _Emitter(this.resolver);
@@ -106,12 +110,16 @@ class _Emitter {
     // the registry is keyed by the simple class name (EntityRegistry.byType uses Type.toString())
     for (var i = 1; i < entities.length; i++) {
       if (entities[i].name == entities[i - 1].name) {
-        _fail(entities[i].cls,
-            '@Entity class ${entities[i].name} has the same name as one in ${entities[i - 1].uri} — entity names must be unique');
+        _fail(
+          entities[i].cls,
+          '@Entity class ${entities[i].name} has the same name as one in ${entities[i - 1].uri} — entity names must be unique',
+        );
       }
     }
 
-    final uris = {for (final f in [...entities, ...pages]) f.uri}.toList()..sort();
+    final uris = {
+      for (final f in [...entities, ...pages]) f.uri,
+    }.toList()..sort();
     for (var i = 0; i < uris.length; i++) {
       _prefixes[uris[i]] = 'i$i';
     }
@@ -121,7 +129,7 @@ class _Emitter {
       ..writeln('// ignore_for_file: type=lint')
       ..writeln('//')
       ..writeln('// ignis_builder: every @Entity / @Page class under lib/ of package:$package.')
-      ..writeln('// Regenerate after changing them: dart run build_runner build --delete-conflicting-outputs')
+      ..writeln('// Regenerate after changing them: dart run build_runner build')
       ..writeln()
       ..writeln("import 'package:ignis/engine/annotations.dart' as ig;")
       ..writeln("import 'package:ignis/engine/meta.dart' as ig;");
@@ -151,10 +159,16 @@ class _Emitter {
     if (cls.isAbstract) _fail(cls, '$what class ${f.name} is abstract — the engine must instantiate it');
     final ctor = cls.unnamedConstructor;
     if (ctor == null) {
-      _fail(cls, '$what class ${f.name} has no unnamed constructor — add `${f.name}();` (the engine calls ${f.name}.new)');
+      _fail(
+        cls,
+        '$what class ${f.name} has no unnamed constructor — add `${f.name}();` (the engine calls ${f.name}.new)',
+      );
     }
     if (ctor.formalParameters.any((p) => p.isRequired)) {
-      _fail(cls, '$what class ${f.name}: the unnamed constructor has required parameters — the engine calls it with none');
+      _fail(
+        cls,
+        '$what class ${f.name}: the unnamed constructor has required parameters — the engine calls it with none',
+      );
     }
   }
 
@@ -172,16 +186,20 @@ class _Emitter {
         log.warning('${_where(field)}: private field ${f.name}.${field.name} is not a column');
         continue;
       }
-      if (field.setter == null) _fail(field, '@Entity field ${f.name}.${field.name} must be writable (not final/const)');
+      if (field.setter == null)
+        _fail(field, '@Entity field ${f.name}.${field.name} must be writable (not final/const)');
       final name = field.name!;
-      fields.add('ig.FieldMeta(${_str(name)}, ig.ignisFieldType(($ref o) => o.$name), '
-          '(o) => (o as $ref).$name, (o, v) => (o as $ref).$name = v as dynamic, '
-          'defaultValue: ${await _default(field)})');
+      fields.add(
+        'ig.FieldMeta(${_str(name)}, ig.ignisFieldType(($ref o) => o.$name), '
+        '(o) => (o as $ref).$name, (o, v) => (o as $ref).$name = v as dynamic, '
+        'defaultValue: ${await _default(field)})',
+      );
     }
 
     return '''
     ig.EntityMeta(
       typeName: ${_str(f.name)},
+      library: ${_str(f.uri)},
       type: $ref,
       table: ${_literal(entity.read('table').objectValue)},
       pk: ${_literal(entity.read('pk').objectValue)},
@@ -201,8 +219,10 @@ class _Emitter {
     final value = init.computeConstantValue()?.value;
     final literal = value == null ? null : _literalOrNull(value);
     if (literal == null) {
-      log.warning('${_where(field)}: the initializer of ${field.enclosingElement.name}.${field.name} is not a constant '
-          'String/num/bool — no column DEFAULT for it (make it a const literal)');
+      log.warning(
+        '${_where(field)}: the initializer of ${field.enclosingElement.name}.${field.name} is not a constant '
+        'String/num/bool — no column DEFAULT for it (make it a const literal)',
+      );
       return 'null';
     }
     return literal;
@@ -239,16 +259,17 @@ class _Emitter {
       if (field.isPrivate) _fail(field, 'synced field ${f.name}.${field.name} is private — make it public');
       if (field.setter == null) _fail(field, 'synced field ${f.name}.${field.name} must be writable');
       final name = field.name!;
-      synced.add('ig.SyncedMeta(${_str(name)}, $session, ig.ignisFieldType(($ref o) => o.$name), '
-          '(o) => (o as $ref).$name, (o, v) => (o as $ref).$name = v as dynamic)');
+      synced.add(
+        'ig.SyncedMeta(${_str(name)}, $session, ig.ignisFieldType(($ref o) => o.$name), '
+        '(o) => (o as $ref).$name, (o, v) => (o as $ref).$name = v as dynamic)',
+      );
     }
 
-    final actionsSrc = [
-      for (final e in actions.entries) '${_str(e.key)}: [${e.value.join(', ')}]',
-    ].join(', ');
+    final actionsSrc = [for (final e in actions.entries) '${_str(e.key)}: [${e.value.join(', ')}]'].join(', ');
     return '''
     ig.PageMeta(
       typeName: ${_str(f.name)},
+      library: ${_str(f.uri)},
       page: const ${_construct('ig.Page', page)},
       ctor: $ref.new,
       cookieAuth: ${_adminPage.isSuperOf(cls) || _customerPage.isSuperOf(cls)},
@@ -262,10 +283,12 @@ class _Emitter {
   String _construct(String type, DartObject value) {
     final ctor = (value.type!.element as ClassElement).unnamedConstructor!;
     final reader = ConstantReader(value);
-    final args = [
-      for (final p in ctor.formalParameters)
-        p.isNamed ? '${p.name}: ${_literal(reader.read(p.name!).objectValue)}' : _literal(reader.read(p.name!).objectValue),
-    ];
+    String arg(String name) {
+      final r = reader.read(name);
+      return r.isNull ? 'null' : _literal(r.objectValue);
+    }
+
+    final args = [for (final p in ctor.formalParameters) p.isNamed ? '${p.name}: ${arg(p.name!)}' : arg(p.name!)];
     return '$type(${args.join(', ')})';
   }
 }

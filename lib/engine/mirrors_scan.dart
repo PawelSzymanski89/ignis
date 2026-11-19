@@ -80,6 +80,7 @@ EntityMeta _entity(ClassMirror cm, Entity entity, Cached? cached) {
   }
   return EntityMeta(
     typeName: MirrorSystem.getName(cm.simpleName),
+    library: (cm.owner as LibraryMirror).uri.toString(),
     type: cm.reflectedType,
     table: entity.table,
     pk: entity.pk,
@@ -130,6 +131,7 @@ PageMeta _page(ClassMirror cm, Page page, ClassMirror pageEngine, ClassMirror ad
 
   return PageMeta(
     typeName: MirrorSystem.getName(cm.simpleName),
+    library: (cm.owner as LibraryMirror).uri.toString(),
     page: page,
     ctor: () => cm.newInstance(const Symbol(''), const []).reflectee as Object,
     actions: actions,
