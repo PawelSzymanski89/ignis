@@ -161,6 +161,18 @@ class DbSession {
   }
 }
 
+/// A running Db.asSystem/Db.asPlatform block inside a transaction — the zone value of its body. A future that
+/// outlives the block sees [active] == false and is treated as top-level.
+class _RaisedBlock {
+  _RaisedBlock(this.session, this.value);
+  final DbSession session;
+  final String value;
+  bool active = true;
+
+  /// Queue of the blocks nested in this one.
+  Future<void> chain = Future.value();
+}
+
 /// Too much concurrent work (e.g. the bcrypt queue is full) — the engine answers 503 with `Retry-After`.
 class Overloaded implements Exception {
   const Overloaded();
@@ -317,42 +329,65 @@ class Db {
   /// The context covers the whole request transaction: a query launched IN PARALLEL with [body] (Future.wait,
   /// un-awaited future) also sees the raised context — always `await` a raised block before the rest
   /// (SECURITY.md, "Notes for app authors"). Raised blocks of one session run one after another, so an
-  /// overlapping block cannot restore a context it read while another block was raised.
+  /// overlapping block cannot restore a context it read while another block was raised. Blocks nested in a
+  /// still running block queue on that block and restore its context; a future that outlives its block counts
+  /// as top-level. Waiting in a queue longer than [_raisedWait] (a block awaiting a future that itself waits
+  /// for the queue) ends with a [StateError] instead of hanging.
   static Future<T> _briefly<T>(DbSession s, String value, Future<T> Function() body) async {
-    if (Zone.current[_raisedKey] case (final DbSession o, final String outer) when identical(o, s)) {
-      return outer == value ? body() : _raise(s, value, outer, body);
+    final z = Zone.current[_raisedKey];
+    final parent = z is _RaisedBlock && z.active && identical(z.session, s) ? z : null;
+    final restore = parent?.value ?? s._context!;
+    final previous = parent?.chain ?? s._raisedChain, turn = Completer<void>();
+    if (parent != null) {
+      parent.chain = turn.future;
+    } else {
+      s._raisedChain = turn.future;
     }
-    final previous = s._raisedChain, turn = Completer<void>();
-    s._raisedChain = turn.future;
-    await previous;
     try {
-      return await _raise(s, value, s._context!, body);
+      await previous.timeout(_raisedWait);
+    } on TimeoutException {
+      previous.whenComplete(turn.complete).ignore();
+      throw StateError('Db.asSystem/Db.asPlatform waited over ${_raisedWait.inSeconds} s for another elevated '
+          'block of the same transaction — a block probably awaits a future that waits for the block itself');
+    }
+    try {
+      return await _raise(s, value, restore, body);
     } finally {
       turn.complete();
     }
   }
 
   static const _raisedKey = #ignisRaised;
+  static const _raisedWait = Duration(seconds: 30);
 
   static Future<T> _raise<T>(DbSession s, String value, String restore, Future<T> Function() body) async {
     final tx = await s._tx();
     Future<void> set(String v) => tx.execute(r"SELECT set_config('" + serviceGuc + r"', $1, true)", parameters: [v]);
-    await set(value);
+    if (value != restore) await set(value);
     s._raised++;
+    final block = _RaisedBlock(s, value);
     final T result;
     try {
-      result = await runZoned(body, zoneValues: {_raisedKey: (s, value)});
+      result = await runZoned(body, zoneValues: {_raisedKey: block});
     } catch (_) {
-      s._raised--;
+      block.active = false;
+      await block.chain;
       // an aborted transaction refuses set_config; the body's error is the one to report, and the transaction
       // (or the caller's savepoint, which also undoes the raised context) is rolled back anyway
       try {
-        await set(restore);
+        if (value != restore) await set(restore);
       } catch (_) {}
+      s._raised--;
       rethrow;
     }
-    s._raised--;
-    await set(restore);
+    block.active = false;
+    // nested blocks started (not awaited) in [body] restore this block's context — they end first
+    await block.chain;
+    try {
+      if (value != restore) await set(restore);
+    } finally {
+      s._raised--;
+    }
     return result;
   }
 
