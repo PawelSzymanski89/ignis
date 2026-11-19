@@ -36,6 +36,8 @@
   dropped connection). Over the budget the route answers `503` with `Retry-After`.
 - `IGNIS_REQUIRE_RUNTIME_ROLE=1` (opt-in): a node whose database role owns any engine table refuses to start
   instead of only warning; `tool/runtime_role.sql` holds the owner + runtime role recipe from `SECURITY.md`.
+- CI `scan` job: `gitleaks` on the pushed / PR commits and `osv-scanner` on `pubspec.lock` (actions pinned by
+  SHA); exception policy in `SECURITY.md`, "CI scans".
 
 ## 0.2.0 — 2026-11-19
 

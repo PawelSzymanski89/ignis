@@ -297,6 +297,14 @@ requests without it makes the health check — with node and backend state — p
 | **staff login namespace** | logins are global (existence oracle, squatting); per-tenant namespacing as for customer accounts is the alternative |
 | **breached-password check** | whether to check new panel passwords against a breached-password list |
 
+## CI scans
+
+- The `scan` job runs `gitleaks` on the pushed / pull-request commits and `osv-scanner` on `pubspec.lock`;
+  a finding fails the job. Actions are pinned by commit SHA.
+- Exceptions: a gitleaks false positive goes to `.gitleaksignore` (fingerprint), an accepted advisory to
+  `osv-scanner.toml` (`[[IgnoredVulns]]` with `ignoreUntil` and `reason`). Each exception names its owner, the
+  reason and a review-by date; an expired one is removed or renewed with a new reason, not left in place.
+
 ## Third-party notes
 
 - `pointycastle` (AES-GCM) is not constant-time. Dependencies use caret ranges; `pubspec.lock` is
