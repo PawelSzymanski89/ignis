@@ -1,4 +1,5 @@
 // KontaKlientow: każde otwarcie sesji zapisuje ostatnie_logowanie (SQL bez bazy), kolumna z encji User.
+// ignore: deprecated_member_use
 import 'dart:mirrors';
 
 import 'package:ignis/ignis.dart';

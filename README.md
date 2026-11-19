@@ -154,6 +154,8 @@ second factor is built into the panel.
 
 > [!NOTE]
 > Ignis uses `dart:mirrors`, so it runs on the Dart VM in JIT mode (`dart run`), not AOT.
+> Since Dart 3.14 the library is marked deprecated, with no removal date; if it is removed, Ignis will switch
+> to explicit registration of pages and entities (no code generation).
 
 ## Quick start
 
@@ -489,7 +491,7 @@ Redis-only session tests check `IGNIS_REDIS_HOST` instead). Engineering rules ar
 
 ## Status
 
-Version **0.2.1** — a hardening follow-up to 0.2.0, after the first public release (0.1.0, extracted from a
+Version **0.2.2** — 0.2.1 (a hardening follow-up to 0.2.0) kept on `dart:mirrors` for Dart 3.14+, after the first public release (0.1.0, extracted from a
 production multi-tenant panel) and 0.1.1 (configurable Content-Security-Policy). 0.2.0 made
 `IGNIS_TRUSTED_PROXIES` required (`none` = no reverse proxy); 0.2.1 refuses `api`/`cors` routes on cookie-
 authenticated pages — see the upgrade notes in the [changelog](CHANGELOG.md). The API (`Ignis.start`, `@Page`,

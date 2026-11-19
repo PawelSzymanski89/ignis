@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.2 — 2026-11-19
+
+### Changed
+
+- `dart:mirrors` imports carry a targeted `// ignore: deprecated_member_use`: since Dart 3.14 the library is
+  deprecated (dart-lang/sdk#44489), which failed `dart analyze --fatal-infos`. No global suppression.
+- README: Ignis stays on `dart:mirrors` (Dart VM / JIT); if the library is removed, Ignis will switch to explicit
+  registration of pages and entities (no code generation).
+- No behaviour change.
+
 ## 0.2.1 — 2026-11-19
 
 Hardening follow-up to 0.2.0 (HARD-L.13). Details in `SECURITY.md`.

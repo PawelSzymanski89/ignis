@@ -17,6 +17,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+// ponytail: dart:mirrors is deprecated since Dart 3.14 (dart-lang/sdk#44489); drop this ignore when Ignis moves to explicit registration.
+// ignore: deprecated_member_use
 import 'dart:mirrors';
 import 'dart:typed_data';
 

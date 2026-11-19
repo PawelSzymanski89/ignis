@@ -1,6 +1,6 @@
 # Ignis security
 
-This document describes the **actual state** of Ignis 0.2.1, not intentions. Every point maps to a
+This document describes the **actual state** of Ignis 0.2.2, not intentions. Every point maps to a
 file you can check. Open problems are listed under "Known gaps", not left out.
 
 > The first public release (0.1.0) included the pre-release audit fixes for areas A (tenant isolation / auth),

@@ -1,4 +1,5 @@
 // PageRegistry.scanActions: @Action z klasy bazowej strony też jest akcją strony (bez bazy).
+// ignore: deprecated_member_use
 import 'dart:mirrors';
 
 import 'package:ignis/ignis.dart';

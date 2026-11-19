@@ -4,7 +4,7 @@ description: >-
   domains): an annotation-driven page and entity engine plus an admin panel.
   Uses dart:mirrors — runs in JIT only (`dart run`), no AOT.
 publish_to: none
-version: 0.2.1
+version: 0.2.2
 repository: https://github.com/PawelSzymanski89/ignis
 homepage: https://github.com/PawelSzymanski89/ignis
 
