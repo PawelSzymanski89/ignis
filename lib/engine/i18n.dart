@@ -11,7 +11,8 @@
 
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
+
+import 'package_root.dart';
 
 class I18n {
   static const cookie = 'lang';
@@ -24,9 +25,7 @@ class I18n {
   static final Map<String, Map<String, String>> _texts = {};
   static final Set<String> _logged = {};
 
-  static final String packageCatalog = Isolate.resolvePackageUriSync(Uri.parse('package:ignis/ignis.dart'))!
-      .resolve('../i18n')
-      .toFilePath();
+  static final String packageCatalog = '${ignisPackageRoot()}/i18n';
   static final Map<String, Map<String, String>> _builtIn = {
     for (final j in builtInLanguages)
       j: {

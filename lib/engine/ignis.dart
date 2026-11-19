@@ -18,6 +18,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
+import '../ignis_registry.g.dart' as core;
 import 'client_ip.dart';
 import 'db.dart';
 import 'audit_log.dart';
@@ -26,7 +27,9 @@ import 'config.dart';
 import 'storage.dart';
 import 'orm.dart';
 import 'redis.dart';
+import 'mirrors_scan_stub.dart' if (dart.library.mirrors) 'mirrors_scan.dart';
 import 'registry.dart';
+import 'registry_check.dart';
 import 'render.dart';
 import 'schema.dart';
 import 'seed.dart';
@@ -102,12 +105,42 @@ class Ignis {
     ];
   }
 
+  /// The registry the node runs on:
+  ///  • [app] given — the core registry + [app]; in JIT it is compared with the dart:mirrors scan first, and a
+  ///    stale one (class added/changed after the last build) stops the start with the list and [buildCommand],
+  ///  • no [app], JIT — the dart:mirrors scan (as before 0.3.0) and one warning line,
+  ///  • no [app], AOT — [StateError] ([noRegistryError]).
+  static IgnisRegistry resolveRegistry(IgnisRegistry? app, {void Function(String) warn = _warn}) {
+    final scanned = scanWithMirrors();
+    if (app == null) {
+      if (scanned == null) throw StateError(noRegistryError);
+      warn('Ignis WARNING: no generated registry — scanning with dart:mirrors (JIT only; dart:mirrors is deprecated '
+          'and will be removed in a future Dart release). Add ignis_builder to dev_dependencies, run '
+          "`$buildCommand` and pass `registry: ignisRegistry` (import 'ignis_registry.g.dart') to Ignis.start.");
+      return scanned;
+    }
+    final merged = core.ignisRegistry.merge(app);
+    if (scanned != null) {
+      final diff = registryDifferences(merged, scanned, bothWays: false);
+      if (diff.isNotEmpty) {
+        throw StateError('Ignis: the generated registry (ignis_registry.g.dart) is out of date — run `$buildCommand` '
+            'and restart:\n  • ${diff.join('\n  • ')}');
+      }
+    }
+    return merged;
+  }
+
+  static void _warn(String line) => stdout.writeln(line);
+
   /// Node startup. [templates] — app template directories (they win over the package).
   /// [appAssets] — app static directories under `/assets/`, searched before `IGNIS_ASSETS`.
   /// [extraCsp] — sources added to the base Content-Security-Policy per directive ([Engine.buildCsp]).
-  /// App pages and entities must be imported in its `main` (mirrors).
+  /// [registry] — the app's generated `ignisRegistry` (ignis_builder, `lib/ignis_registry.g.dart`); the core
+  /// pages and entities are added to it. Without it the node scans with dart:mirrors (JIT only, app pages and
+  /// entities must be imported in its `main`) — see [resolveRegistry].
   static Future<void> start(
-      {List<String> templates = const [],
+      {IgnisRegistry? registry,
+      List<String> templates = const [],
       List<(String, String)> permissions = const [],
       List<Section> settingsSections = const [],
       Future<void> Function()? seed,
@@ -149,9 +182,10 @@ class Ignis {
           'because secrets not yet re-encrypted by bin/rekey.dart would be unreadable');
     }
 
-    // Reflective page scan → route registry (once, at startup).
-    PageRegistry.build();
-    EntityRegistry.build();
+    // Page and entity registry (once, at startup): generated, or the dart:mirrors scan in JIT.
+    final source = resolveRegistry(registry);
+    PageRegistry.build(source);
+    EntityRegistry.build(source);
     stdout.writeln('Ignis entities: ${EntityRegistry.names.join(', ')}');
 
     // AUTO-SCHEMA: tables and columns come from @Entity classes (IGNIS_SCHEMA=update|validate|none).

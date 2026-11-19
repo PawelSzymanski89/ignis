@@ -14,8 +14,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ignis/engine/registry.dart';
-// ignore: unused_import
-import 'package:ignis/pages.dart';
+import 'package:ignis/ignis_registry.g.dart';
 
 final _client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
 final _cookieJar = <String, String>{};
@@ -59,7 +58,7 @@ Future<void> main(List<String> a) async {
     stderr.writeln('The panel address must be https:// (http:// only for *.localhost/127.0.0.1).');
     exit(2);
   }
-  PageRegistry.build();
+  PageRegistry.build(ignisRegistry);
 
   stdout.writeln('=== PANEL SMOKE: $db ===\n');
   await _task('$db/admin/login'); // for the CSRF cookie

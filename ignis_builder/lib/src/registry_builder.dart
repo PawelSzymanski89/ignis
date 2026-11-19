@@ -124,6 +124,14 @@ class _Emitter {
       _prefixes[uris[i]] = 'i$i';
     }
 
+    // Same-package libraries are imported relatively (lib/ignis_registry.g.dart sits in lib/): the program may
+    // load this package by file: URIs (e.g. tests importing ../lib/…), and a package: import would then load
+    // every class a second time as a different type.
+    String importUri(String uri) {
+      final own = 'package:$package/';
+      return uri.startsWith(own) ? uri.substring(own.length) : uri;
+    }
+
     final out = StringBuffer()
       ..writeln('// GENERATED CODE - DO NOT MODIFY BY HAND')
       ..writeln('// ignore_for_file: type=lint')
@@ -131,10 +139,10 @@ class _Emitter {
       ..writeln('// ignis_builder: every @Entity / @Page class under lib/ of package:$package.')
       ..writeln('// Regenerate after changing them: dart run build_runner build')
       ..writeln()
-      ..writeln("import 'package:ignis/engine/annotations.dart' as ig;")
-      ..writeln("import 'package:ignis/engine/meta.dart' as ig;");
+      ..writeln("import '${importUri('package:ignis/engine/annotations.dart')}' as ig;")
+      ..writeln("import '${importUri('package:ignis/engine/meta.dart')}' as ig;");
     for (final u in uris) {
-      out.writeln("import '$u' as ${_prefix(u)};");
+      out.writeln("import '${importUri(u)}' as ${_prefix(u)};");
     }
     out
       ..writeln()

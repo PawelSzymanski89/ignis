@@ -46,7 +46,10 @@ class DashboardPage extends AdminPage {
     put('my_patterns', mine.allow);
     put('my_deny', mine.deny);
 
-    put('packages', packages);
+    // maps, not PermissionPackage objects: `p.name` on an object needs dart:mirrors, which an AOT build lacks
+    put('packages', [
+      for (final p in packages) {'name': p.name, 'description': p.description, 'permissions': p.permissions}
+    ]);
     if (!canAccounts) return;
     // overview: who has which packages
     // two queries for the whole list, not two per account

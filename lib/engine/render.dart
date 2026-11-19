@@ -11,7 +11,7 @@
 //  ESCAPE (anti-XSS): jinja 0.6.7 has NO autoescape — `{{ x }}` prints raw.
 //  So we escape ON OUR SIDE, before data reaches the template:
 //    • every String in the model (also in nested Map/List) — in `sanitize()`,
-//    • object fields read through mirrors (`p.name`) — in `_attribute()`,
+//    • object fields read through mirrors (`p.name`; JIT only — in AOT only `[]`) — in `_attribute()`,
 //    • anything else that reaches `{{ }}` (own toString(), exceptions, records), also inside collections
 //      and in the `string`/`join` filters — in `_finalize()`,
 //    • `striptags` is replaced: jinja's own unescapes its result.
@@ -27,14 +27,14 @@
 
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 
 import 'package:jinja/jinja.dart';
 import 'package:jinja/loaders.dart';
-import 'package:jinja/reflection.dart' show getAttribute;
 
+import 'attribute_stub.dart' if (dart.library.mirrors) 'attribute_mirrors.dart';
 import 'engine.dart';
 import 'ignis.dart';
+import 'package_root.dart';
 
 /// Cents → "123.45".
 String money(int cents) => (cents / 100).toStringAsFixed(2);
@@ -52,17 +52,12 @@ class Html {
 }
 
 class Renderer {
-  /// Templates of the ignis package: `templates/` next to `lib/` (works with a path dependency too).
-  static final String packageTemplates = Isolate.resolvePackageUriSync(
-          Uri.parse('package:ignis/ignis.dart'))!
-      .resolve('../templates')
-      .toFilePath();
+  /// Templates of the ignis package: `templates/` next to `lib/` (works with a path dependency too;
+  /// AOT: under IGNIS_PACKAGE_ROOT).
+  static final String packageTemplates = '${ignisPackageRoot()}/templates';
 
   /// Static files of the ignis package (`web/` next to `lib/`) — the last `/assets/` directory, e.g. `/assets/ignis/picker.js`.
-  static final String packageAssets = Isolate.resolvePackageUriSync(
-          Uri.parse('package:ignis/ignis.dart'))!
-      .resolve('../web')
-      .toFilePath();
+  static final String packageAssets = '${ignisPackageRoot()}/web';
 
   /// Template directories — the first one containing the file wins (app before package).
   static List<String> paths = [packageTemplates];
@@ -127,7 +122,7 @@ class Renderer {
     if (object is MapEntry && (name == 'key' || name == 'value')) return name == 'key' ? object.key : object.value;
     // an object's collection field (List<String>, Map) must go through escaping too —
     // a Map from the model is already clean, but a Map taken out of an object through mirrors is not.
-    return sanitize(getAttribute(name, object));
+    return sanitize(readAttribute(name, object));
   }
 
   /// Escapes every String in the model; Html passes untouched.

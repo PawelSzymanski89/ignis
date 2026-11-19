@@ -4,21 +4,21 @@
 // ignis_builder: every @Entity / @Page class under lib/ of package:ignis.
 // Regenerate after changing them: dart run build_runner build
 
-import 'package:ignis/engine/annotations.dart' as ig;
-import 'package:ignis/engine/meta.dart' as ig;
-import 'package:ignis/entities/audit_log.dart' as i0;
-import 'package:ignis/entities/auth.dart' as i1;
-import 'package:ignis/entities/files.dart' as i2;
-import 'package:ignis/entities/tenant.dart' as i3;
-import 'package:ignis/pages/account_page.dart' as i4;
-import 'package:ignis/pages/audit_log_page.dart' as i5;
-import 'package:ignis/pages/dashboard_page.dart' as i6;
-import 'package:ignis/pages/files_page.dart' as i7;
-import 'package:ignis/pages/health_page.dart' as i8;
-import 'package:ignis/pages/login_page.dart' as i9;
-import 'package:ignis/pages/logout_page.dart' as i10;
-import 'package:ignis/pages/permissions_page.dart' as i11;
-import 'package:ignis/pages/settings_page.dart' as i12;
+import 'engine/annotations.dart' as ig;
+import 'engine/meta.dart' as ig;
+import 'entities/audit_log.dart' as i0;
+import 'entities/auth.dart' as i1;
+import 'entities/files.dart' as i2;
+import 'entities/tenant.dart' as i3;
+import 'pages/account_page.dart' as i4;
+import 'pages/audit_log_page.dart' as i5;
+import 'pages/dashboard_page.dart' as i6;
+import 'pages/files_page.dart' as i7;
+import 'pages/health_page.dart' as i8;
+import 'pages/login_page.dart' as i9;
+import 'pages/logout_page.dart' as i10;
+import 'pages/permissions_page.dart' as i11;
+import 'pages/settings_page.dart' as i12;
 
 /// Pass to `Ignis.start(registry: ignisRegistry)` — pages and entities without dart:mirrors.
 final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
