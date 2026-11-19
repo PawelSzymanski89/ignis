@@ -10,10 +10,12 @@
 //  ⚠️ Mirrors see only REACHABLE classes (imported somewhere in the program). That
 //     is why the barrels must be imported. The generated registry has no such trap.
 //
-//  ponytail: remove this file (and the fallback) once Dart drops dart:mirrors
-//  (dart-lang/sdk#44489, "will be removed in a future release").
+//  ponytail: remove this file, attribute_mirrors.dart and both conditional imports (registry.dart,
+//  orm.dart, ignis.dart, render.dart) once Dart removes dart:mirrors (dart-lang/sdk#44489: deprecated in
+//  3.14, "will be removed in a future release"); then Ignis.start(registry:) becomes required.
 // ============================================================================
 
+// deprecated since Dart 3.14 — the one place Ignis still imports it (JIT fallback + staleness check)
 // ignore: deprecated_member_use
 import 'dart:mirrors';
 

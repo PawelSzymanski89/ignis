@@ -1,5 +1,6 @@
 // Public API of the Ignis Web Engine library: engine core + core pages and entities.
-// The app imports this file and its own page barrel (mirrors see only reachable classes).
+// The app imports this file; its own pages and entities reach the engine through its generated
+// lib/ignis_registry.g.dart (Ignis.start(registry: ignisRegistry)).
 
 export 'engine/annotations.dart';
 export 'engine/page_engine.dart';

@@ -30,7 +30,7 @@ import 'upload.dart';
 import 'orm.dart';
 import 'signature.dart';
 
-/// Base page class. The engine creates an instance per request (via mirrors),
+/// Base page class. The engine creates an instance per request (unnamed constructor, from the registry),
 /// calls bind(), then the lifecycle methods.
 abstract class PageEngine {
   // --- Input (request) -----------------------------------------------------

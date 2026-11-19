@@ -11,7 +11,8 @@
 //  ESCAPE (anti-XSS): jinja 0.6.7 has NO autoescape — `{{ x }}` prints raw.
 //  So we escape ON OUR SIDE, before data reaches the template:
 //    • every String in the model (also in nested Map/List) — in `sanitize()`,
-//    • object fields read through mirrors (`p.name`; JIT only — in AOT only `[]`) — in `_attribute()`,
+//    • object fields (`p.name`): through dart:mirrors in JIT; in AOT only collection getters and `[]`
+//      (attribute_stub.dart) — pass Maps, not objects, to templates — in `_attribute()`,
 //    • anything else that reaches `{{ }}` (own toString(), exceptions, records), also inside collections
 //      and in the `string`/`join` filters — in `_finalize()`,
 //    • `striptags` is replaced: jinja's own unescapes its result.

@@ -5,7 +5,7 @@
 import 'package:ignis/engine/db.dart';
 import 'package:ignis/engine/orm.dart';
 import 'package:ignis/engine/schema.dart';
-// ignore: unused_import — core entities register through mirrors (EntityRegistry.build)
+// ignore: unused_import — core entities: EntityRegistry.build() without a registry = dart:mirrors scan (JIT fallback)
 import 'package:ignis/entities.dart';
 import 'package:postgres/postgres.dart' show Sql;
 import 'pg_guard.dart';

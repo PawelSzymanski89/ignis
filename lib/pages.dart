@@ -1,10 +1,10 @@
 // ============================================================================
 //  pages.dart — BARREL of all pages
 // ----------------------------------------------------------------------------
-//  ⚠️ CRUCIAL for reflection: dart:mirrors sees only REACHABLE classes
-//  (loaded into the program). That is why EVERY page class has to be imported here,
-//  and this file imported in bin/server.dart. Without it the VM drops an unused
-//  class and registry.build() will not find it.
+//  The generated registry (ignis_builder → lib/ignis_registry.g.dart) finds every
+//  @Page under lib/ by itself; this barrel is the public import of the core pages.
+//  Without a generated registry (JIT fallback, dart:mirrors) only REACHABLE classes are
+//  seen — then this file must be imported by the program.
 // ============================================================================
 
 // panel administracyjny

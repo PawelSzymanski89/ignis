@@ -7,7 +7,7 @@ import 'dart:io';
 import 'package:ignis/engine/db.dart';
 import 'package:ignis/engine/orm.dart';
 import 'package:ignis/engine/schema.dart';
-// ignore: unused_import — encje rdzenia rejestrują się przez mirrors (EntityRegistry.build)
+// ignore: unused_import — encje rdzenia: EntityRegistry.build() bez rejestru = skan dart:mirrors (fallback JIT)
 import 'package:ignis/entities.dart';
 import 'package:postgres/postgres.dart' show Sql;
 import 'pg_guard.dart';
