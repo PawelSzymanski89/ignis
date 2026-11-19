@@ -28,7 +28,7 @@ fi
 $B/bin/pg_ctl -D $P/data status >/dev/null 2>&1 || $B/bin/pg_ctl -D $P/data -o "-p $PORT -k $P" -l $P/pg.log -w start >/dev/null || exit 1
 redis-cli -p $RPORT ping >/dev/null 2>&1 || redis-server --port $RPORT --save '' --appendonly no --daemonize yes >/dev/null || exit 1
 redis-cli -p $RPORT flushall >/dev/null
-export IGNIS_DB_HOST=127.0.0.1 IGNIS_DB_PORT=$PORT IGNIS_DB_USER=ig IGNIS_DB_PASS=ig IGNIS_DB_NAME=postgres
+export IGNIS_PG_TEST=1 IGNIS_DB_HOST=127.0.0.1 IGNIS_DB_PORT=$PORT IGNIS_DB_USER=ig IGNIS_DB_PASS=ig IGNIS_DB_NAME=postgres
 dart run tool/pg_new_db.dart ignistest ignis_app ignisapp ignis_rt ignisrt || exit 1
 export IGNIS_DB_NAME=ignistest IGNIS_DB_USER=ignis_app IGNIS_DB_PASS=ignisapp IGNIS_REDIS_HOST=127.0.0.1 IGNIS_REDIS_PORT=$RPORT
 export IGNIS_DOMAINS=${IGNIS_DOMAINS:-localhost}

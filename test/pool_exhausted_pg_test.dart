@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:ignis/ignis.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'pg_guard.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -36,10 +37,7 @@ class QueryPage extends PageEngine {
 }
 
 Future<void> main() async {
-  if (Platform.environment['IGNIS_DB_HOST'] == null) {
-    print('  skipped — no IGNIS_DB_HOST (tool/pg_test.sh)');
-    return;
-  }
+  if (skipDestructive()) return;
   if (Platform.environment['IGNIS_DB_POOL'] != '1') {
     final r = await Process.run(Platform.resolvedExecutable, ['run', Platform.script.toFilePath()],
         environment: {'IGNIS_DB_POOL': '1'});

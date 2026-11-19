@@ -10,6 +10,7 @@ import 'package:ignis/engine/tenant.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
 import 'package:postgres/postgres.dart' show Sql;
+import 'pg_guard.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -25,10 +26,7 @@ Future<String> domainKeys() async =>
         .trim();
 
 Future<void> main() async {
-  if (Platform.environment['IGNIS_DB_HOST'] == null) {
-    print('  pominięte — brak IGNIS_DB_HOST (tool/pg_test.sh)');
-    return;
-  }
+  if (skipDestructive()) return;
   EntityRegistry.build();
   await Schema.sync();
   const domain = 'pipe-test.example';

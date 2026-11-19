@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:ignis/ignis.dart';
 // ignore: unused_import
 import 'package:ignis/pages.dart';
+import 'pg_guard.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -35,10 +36,7 @@ class WithDb extends PageEngine {
 }
 
 Future<void> main() async {
-  if (Platform.environment['IGNIS_DB_HOST'] == null) {
-    print('  pominięte — brak IGNIS_DB_HOST (tool/pg_test.sh)');
-    return;
-  }
+  if (skipDestructive()) return;
   if (Platform.environment['IGNIS_DB_POOL'] != '1') {
     // pula 1 musi być ustawiona przed pierwszym Db.pula() — uruchamiamy siebie ponownie
     final r = await Process.run(Platform.resolvedExecutable, ['run', Platform.script.toFilePath()],

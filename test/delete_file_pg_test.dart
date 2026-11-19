@@ -6,6 +6,7 @@ import 'package:ignis/ignis.dart';
 import 'package:postgres/postgres.dart' show Sql;
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'pg_guard.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -14,10 +15,7 @@ void check(String description, bool condition) {
 
 Future<void> main() async {
   final env = Platform.environment;
-  if (env['IGNIS_DB_HOST'] == null) {
-    print('  pominięte — brak IGNIS_DB_HOST (tool/pg_test.sh)');
-    return;
-  }
+  if (skipDestructive()) return;
   if (env['IGNIS_S3_HOST'] == null) {
     // port 1 na loopbacku: połączenie odrzucone od razu — removeObject na pewno rzuci
     final r = await Process.run(Platform.resolvedExecutable, [Platform.script.toFilePath()], environment: {

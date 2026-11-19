@@ -11,6 +11,7 @@ import 'package:ignis/engine/schema.dart';
 import 'package:ignis/engine/session.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'pg_guard.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -18,10 +19,7 @@ void check(String description, bool condition) {
 }
 
 Future<void> main() async {
-  if (Platform.environment['IGNIS_DB_HOST'] == null) {
-    print('  pominięte — brak IGNIS_DB_HOST (tool/pg_test.sh)');
-    return;
-  }
+  if (skipDestructive()) return;
   EntityRegistry.build();
   await Schema.sync();
   Future<bool> sessionAlive(String t) async => await Sessions.get(t) != null;

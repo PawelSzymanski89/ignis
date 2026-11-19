@@ -1,7 +1,6 @@
 // Startup migration from the pre-0.1.0 Polish schema: tables, columns, indexes, RLS,
 // permission keys, the `podglad` package and setting keys; a second start changes nothing.
 // Run: tool/pg_test.sh test/migration_pg_test.dart
-import 'dart:io';
 
 import 'package:ignis/engine/db.dart';
 import 'package:ignis/engine/orm.dart';
@@ -9,6 +8,7 @@ import 'package:ignis/engine/schema.dart';
 // ignore: unused_import — core entities register through mirrors (EntityRegistry.build)
 import 'package:ignis/entities.dart';
 import 'package:postgres/postgres.dart' show Sql;
+import 'pg_guard.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -63,10 +63,7 @@ const _oldSchema = [
 ];
 
 Future<void> main() async {
-  if (Platform.environment['IGNIS_DB_HOST'] == null) {
-    print('  pominięte — brak IGNIS_DB_HOST (tool/pg_test.sh)');
-    return;
-  }
+  if (skipDestructive()) return;
   EntityRegistry.build();
   await Db.asSystem(() async {
     final c = await Db.connect();

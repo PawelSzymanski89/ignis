@@ -10,6 +10,7 @@ import 'package:ignis/engine/schema.dart';
 import 'package:ignis/engine/session.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'pg_guard.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -37,6 +38,7 @@ Future<void> main() async {
     print('  pominięte (Redis) — brak IGNIS_REDIS_HOST');
     return;
   }
+  if (skipDestructive()) return;
   // sesja czyta epokę konta z bazy (FIX-30) — tabela users musi istnieć
   EntityRegistry.build();
   await Schema.sync();

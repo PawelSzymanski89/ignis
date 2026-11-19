@@ -12,6 +12,7 @@ import 'package:ignis/engine/redis.dart';
 import 'package:ignis/engine/schema.dart';
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'pg_guard.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -27,10 +28,7 @@ class MirrorRow {
 }
 
 Future<void> main() async {
-  if (Platform.environment['IGNIS_DB_HOST'] == null) {
-    print('  skipped — no IGNIS_DB_HOST (tool/pg_test.sh)');
-    return;
-  }
+  if (skipDestructive()) return;
   EntityRegistry.build();
   await Schema.sync();
   await Db.asSystem(() async => (await Db.connect()).execute('DELETE FROM test_mirror'));

@@ -3,6 +3,7 @@
 import 'dart:io';
 
 import 'package:ignis/ignis.dart';
+import 'pg_guard.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -10,10 +11,7 @@ void check(String description, bool condition) {
 }
 
 Future<void> main() async {
-  if (Platform.environment['IGNIS_DB_HOST'] == null) {
-    print('  pominięte — brak IGNIS_DB_HOST (tool/pg_test.sh)');
-    return;
-  }
+  if (skipDestructive()) return;
   const k = 'lock:test:fix41';
   await Redis.del(k);
   final a = await Orm.lock(k);

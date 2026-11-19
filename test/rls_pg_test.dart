@@ -10,6 +10,7 @@ import 'package:ignis/engine/schema.dart';
 // ignore: unused_import — encje rdzenia rejestrują się przez mirrors (EntityRegistry.build)
 import 'package:ignis/entities.dart';
 import 'package:postgres/postgres.dart' show Sql;
+import 'pg_guard.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -20,10 +21,7 @@ Future<int> count() async =>
     (await (await Db.connect()).execute("SELECT count(*) FROM settings WHERE key LIKE 'rlstest.%'")).first[0] as int;
 
 Future<void> main(List<String> a) async {
-  if (Platform.environment['IGNIS_DB_HOST'] == null) {
-    print('  pominięte — brak IGNIS_DB_HOST (tool/pg_test.sh)');
-    return;
-  }
+  if (skipDestructive()) return;
   EntityRegistry.build();
   if (a.contains('tylko-sync')) {
     await Schema.sync(); // proces potomny (FIX-13): rzuca → kod wyjścia ≠ 0

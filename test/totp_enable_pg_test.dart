@@ -9,6 +9,7 @@ import 'package:ignis/ignis.dart';
 import 'package:postgres/postgres.dart' show Sql;
 // ignore: unused_import
 import 'package:ignis/entities.dart';
+import 'pg_guard.dart';
 
 void check(String description, bool condition) {
   if (!condition) throw AssertionError('NOT PASSED: $description');
@@ -42,10 +43,7 @@ Future<String> column(String login) async => await Db.asSystem(() async => (awai
     .first[0] as String);
 
 Future<void> main() async {
-  if (Platform.environment['IGNIS_DB_HOST'] == null) {
-    print('  pominięte — brak IGNIS_DB_HOST (tool/pg_test.sh)');
-    return;
-  }
+  if (skipDestructive()) return;
   EntityRegistry.build();
   PageRegistry.build();
   await Schema.sync();
