@@ -88,14 +88,25 @@ Future<void> main() async {
   final (h2, _) = await post({'username': withCode, 'password': password});
   final half = RegExp(r'name="step2" value="([0-9a-f]{48})"').firstMatch(h2)!.group(1)!;
   await signOutEverywhere(withCode);
-  final (_, s2) = await post({'step2': half, 'code': Totp.code(secret)!});
-  check('a half-session from before "sign out everywhere" gives no valid session', !await valid(s2));
+  final (b2, s2) = await post({'step2': half, 'code': Totp.code(secret)!});
+  check('a half-session from before "sign out everywhere" gets no session cookie at all', s2 == null);
+  check('…and is told the sign-in expired', b2.contains(I18n.t('en', 'ignis.msg.login.expired')));
 
   await clearLimits();
   final (h3, _) = await post({'username': withCode, 'password': password});
   final half3 = RegExp(r'name="step2" value="([0-9a-f]{48})"').firstMatch(h3)!.group(1)!;
   final (_, s3) = await post({'step2': half3, 'code': Totp.code(secret, now: DateTime.now().add(const Duration(seconds: 30)))!});
   check('a fresh half-session with the right code still signs in', await valid(s3));
+
+  // (c) rolling restart: a half-session written by a 0.2.0 node holds just the login; the epoch comes from the database
+  await clearLimits();
+  const old = '0123456789abcdef0123456789abcdef0123456789abcdef';
+  await Redis.setEx('2fa:${Sessions.hashToken(old)}', withCode, 300);
+  final current = (await Db.asSystem(() => Db.account(withCode)))!.$4;
+  check('a 0.2.0 half-session (plain login) is accepted with the epoch from the database',
+      await Db.asSystem(() => Sessions.awaiting(old)) == (withCode, current));
+  final (_, s4) = await post({'step2': old, 'code': Totp.code(secret, now: DateTime.now().add(const Duration(seconds: 30)))!});
+  check('…and the right code signs in', await valid(s4));
 
   client.close(force: true);
   await server.close(force: true);

@@ -170,6 +170,12 @@ class LoginPage extends PageEngine {
           [errorsKey, Permissions.attemptsKey(user, get('__ip') ?? ''), 'rl:account:${Sessions.hashToken(user)}']);
     } catch (_) {}
     await Sessions.endAwaiting(token);
+    // "sign out everywhere" / a password change since the password step: no session (the panel would reject it anyway)
+    if ((await Db.account(user))?.$4 != epoch) {
+      await _trace(user, 'login_2fa', 'denied', detail: 'session epoch changed since the password step');
+      put('error', t('ignis.msg.login.expired'));
+      return true;
+    }
     final perms = await Permissions.forUser(user);
     final available = PageRegistry.menu(perms.allows, platform: context.platform);
     final session = await Sessions.create(user, epoch: epoch);

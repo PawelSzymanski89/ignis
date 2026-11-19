@@ -96,6 +96,8 @@ class Sessions {
   static Future<(String, int)?> awaiting(String token) async {
     if (!validToken(token)) return null;
     final v = await Redis.get('2fa:${hashToken(token)}');
+    // 0.2.0 stored just the login (never starts with '[') — rolling restart; the epoch is the current one
+    if (v != null && !v.startsWith('[')) return (v, await _epoch(v));
     try {
       final l = v == null ? null : jsonDecode(v);
       return l is List && l.length == 2 && l[0] is String && l[1] is int ? (l[0] as String, l[1] as int) : null;

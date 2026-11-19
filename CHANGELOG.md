@@ -6,8 +6,14 @@ Hardening follow-up to 0.2.0 (HARD-L.13). Details in `SECURITY.md`.
 
 ### Upgrade notes
 
-- **Customers sign in again once.** Customer sessions stored by 0.2.0 carry no epoch and are rejected, and
-  panel 2FA half-sessions (password entered, code not yet) from before the upgrade count as expired.
+- **Customers sign in again.** Customer sessions stored by 0.2.0 carry no epoch and are rejected. Panel 2FA
+  half-sessions (password entered, code not yet) written by 0.2.0 are still accepted, with the current epoch.
+- **Rolling restart 0.2.0 → 0.2.1.** In a mixed window customer sessions created on one node version are
+  rejected by the other (0.2.0 wants no epoch, 0.2.1 requires it), so without sticky sessions customers are
+  signed out repeatedly while the window lasts; a 2FA half-session started on a 0.2.1 node fails its code step
+  on a 0.2.0 node. A 0.2.0 node does not bump the epoch on a customer password change. Switch all nodes at once,
+  or accept customers being signed out during the window; the epoch protection holds only after the full
+  rollout.
 - **No schema migration.** `users.session_epoch` exists since 0.2.0 (`Schema.sync` already created it); it now
   also guards customer sessions. Nodes on `IGNIS_SCHEMA=validate` start without a migration step.
 - **New `503`:** `api: true` bodies above the node budget `IGNIS_API_BODY_BUDGET_MB` (64 MB) get `503` with
@@ -23,7 +29,7 @@ Hardening follow-up to 0.2.0 (HARD-L.13). Details in `SECURITY.md`.
   `CustomerAccounts.session()` compares it with the database. A customer password change (admin or reset link)
   bumps the epoch in the same statement and cleans Redis up after the transaction ends, so a session
   created with the old password in parallel, or one whose Redis key survived, is rejected. Customer sessions
-  stored before this change have no epoch and are rejected — customers sign in again once.
+  stored before this change have no epoch and are rejected — customers sign in again.
 - The `striptags` template filter no longer unescapes its result: Jinja's version turned an escaped
   `<script>` from the model back into raw markup. Entities stay escaped; trusted `Html` still loses its tags.
 - A request query that runs while an elevated block (`Db.asSystem` / `Db.asPlatform`) of the same transaction
@@ -36,7 +42,8 @@ Hardening follow-up to 0.2.0 (HARD-L.13). Details in `SECURITY.md`.
   (`Db.checkLoginWithEpoch`), and the 2FA half-session keeps the epoch of its password step: "sign out
   everywhere" or a password change committed while bcrypt runs, or while the code is being typed, leaves the new
   session with the old epoch, which the panel rejects. `Sessions.create` / `Sessions.halfSession` take an
-  optional `epoch`; a half-session from before this change is treated as expired.
+  optional `epoch`. The code step compares the half-session's epoch with the database before creating the
+  session, so a stale one gets "sign-in expired" instead of a cookie the panel rejects.
 
 ### Breaking
 
