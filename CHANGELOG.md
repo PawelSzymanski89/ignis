@@ -17,6 +17,11 @@
 - A customer password-reset token is consumed atomically (GET+DEL in one Redis script): of parallel resets with
   one link exactly one sets the password. A password rejected by the length rule does not use the link up; a
   database error after the consumption leaves it used.
+- A panel sign-in stores the `session_epoch` read in the same query as the password hash
+  (`Db.checkLoginWithEpoch`), and the 2FA half-session keeps the epoch of its password step: "sign out
+  everywhere" or a password change committed while bcrypt runs, or while the code is being typed, leaves the new
+  session with the old epoch, which the panel rejects. `Sessions.create` / `Sessions.halfSession` take an
+  optional `epoch`; a half-session from before this change is treated as expired.
 
 ### Breaking
 

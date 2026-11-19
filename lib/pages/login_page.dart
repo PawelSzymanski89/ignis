@@ -56,7 +56,8 @@ class LoginPage extends PageEngine {
     }
 
     await CustomerAccounts.releaseUnderAttack('rl:account:${Sessions.hashToken(user)}');
-    final ok = await Db.checkLogin(user, pass);
+    final checked = await Db.checkLoginWithEpoch(user, pass);
+    final ok = checked?.$1;
 
     // The account must belong to the service whose domain it signs in on. Without this
     // a platform account would sign in to any customer's panel with just a password.
@@ -88,13 +89,13 @@ class LoginPage extends PageEngine {
 
       // Second factor: the password was enough to know WHO, but not to let them in.
       if (await Permissions.hasTotp(ok)) {
-        put('step2', await Sessions.halfSession(ok));
+        put('step2', await Sessions.halfSession(ok, epoch: checked!.$2));
         put('login_2fa', ok);
         return true;
       }
 
       try { await Redis.delMany([Permissions.attemptsKey(user, ip), 'rl:account:${Sessions.hashToken(user)}']); } catch (_) {}
-      final token = await Sessions.create(ok);
+      final token = await Sessions.create(ok, epoch: checked!.$2);
       await _trace(ok, 'login', 'ok');
       setCookie(Sessions.cookieName, token, maxAge: 60 * 60 * 8); // 8h
       redirect(available.first['route']!);
@@ -117,11 +118,12 @@ class LoginPage extends PageEngine {
 
   /// Verifying the code from the app. The session is created ONLY here.
   Future<bool> _secondFactor(String token) async {
-    final user = await Sessions.awaitingCode(token);
-    if (user == null) {
+    final awaiting = await Sessions.awaiting(token);
+    if (awaiting == null) {
       put('error', t('ignis.msg.login.expired'));
       return true;
     }
+    final (user, epoch) = awaiting;
     // A code has six digits and thirty seconds of life, so without an attempt limit
     // guessing is realistic: 5 shots per token and that's it.
     if (await CustomerAccounts.overLimit('2fa-attempt:${Sessions.hashToken(token)}', 5, 300)) {
@@ -170,7 +172,7 @@ class LoginPage extends PageEngine {
     await Sessions.endAwaiting(token);
     final perms = await Permissions.forUser(user);
     final available = PageRegistry.menu(perms.allows, platform: context.platform);
-    final session = await Sessions.create(user);
+    final session = await Sessions.create(user, epoch: epoch);
     await _trace(user, 'login_2fa', 'ok');
     setCookie(Sessions.cookieName, session, maxAge: 60 * 60 * 8);
     redirect(available.isEmpty ? '/admin' : available.first['route']!);

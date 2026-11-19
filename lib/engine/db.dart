@@ -499,14 +499,19 @@ class Db {
   /// Returns the username on success, null for wrong credentials.
   /// bcrypt runs in a separate isolate ([bcrypt]) — 100-300 ms on the main one would block
   /// all node requests on every sign-in.
-  static Future<String?> checkLogin(String username, String password) async {
+  static Future<String?> checkLogin(String username, String password) async =>
+      (await checkLoginWithEpoch(username, password))?.$1;
+
+  /// [checkLogin] plus `users.session_epoch` read in the same query as the hash — a session created with it is
+  /// rejected when a password change / "sign out everywhere" commits while bcrypt runs.
+  static Future<(String, int)?> checkLoginWithEpoch(String username, String password) async {
     // bcrypt takes at most 72 bytes and throws on longer input — such a password cannot match
     if (passwordTooLong(password)) return null;
     final conn = await connect();
     final rows = await conn.execute(
       // staff only: customer accounts (realm customer) have an empty hash, and bcrypt on ''
       // threw → a 500 that revealed that such a customer exists
-      Sql.named("SELECT username, pass_hash FROM users WHERE username=@u AND realm='staff'"),
+      Sql.named("SELECT username, pass_hash, session_epoch FROM users WHERE username=@u AND realm='staff'"),
       parameters: {'u': username},
     );
     final stored = rows.isEmpty || (rows.first[1] as String).isEmpty ? emptyHash : rows.first[1] as String;
@@ -518,7 +523,7 @@ class Db {
       await conn.execute(Sql.named('UPDATE users SET pass_hash=@h WHERE username=@u AND pass_hash=@s'),
           parameters: {'u': username, 'h': fresh, 's': stored});
     }
-    return rows.first[0] as String;
+    return (rows.first[0] as String, rows.first[2] as int);
   }
 
   /// bcrypt hash of a password (for creating/changing a user).

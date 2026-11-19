@@ -44,17 +44,22 @@ class Sessions {
 
   static final _rng = Random.secure();
 
-  /// Creates a session in Redis, returns the token to send as a cookie.
-  static Future<String> create(String username) async {
+  /// Creates a session in Redis, returns the token to send as a cookie. A sign-in passes the [epoch] read together
+  /// with the password hash ([Db.checkLoginWithEpoch]); without it the current one is read.
+  static Future<String> create(String username, {int? epoch}) async {
     final token = _token();
-    final e = await (await Db.connect())
-        .execute(Sql.named('SELECT session_epoch FROM users WHERE username=@u'), parameters: {'u': username});
-    await Redis.setEx('sess:${hashToken(token)}', jsonEncode([username, e.isEmpty ? 0 : e.first[0] as int]), _ttl);
+    await Redis.setEx('sess:${hashToken(token)}', jsonEncode([username, epoch ?? await _epoch(username)]), _ttl);
     try {
       await Redis.sadd('sessuser:$username', hashToken(token));
       await Redis.expire('sessuser:$username', _ttl);
     } catch (_) {/* the set is auxiliary — the session works anyway */}
     return token;
+  }
+
+  static Future<int> _epoch(String username) async {
+    final e = await (await Db.connect())
+        .execute(Sql.named('SELECT session_epoch FROM users WHERE username=@u'), parameters: {'u': username});
+    return e.isEmpty ? 0 : e.first[0] as int;
   }
 
   static final _tokenFormat = RegExp(r'^[0-9a-f]{48}$');
@@ -76,15 +81,28 @@ class Sessions {
   /// Sign-in paused between the password and the code from the app. The account is already
   /// authenticated by password, but there is NO session yet — if there were, the second
   /// factor would protect nothing.
-  static Future<String> halfSession(String username) async {
+  /// It keeps the [epoch] of the password step: the session after the code carries it, so "sign out everywhere"
+  /// in between ends it too.
+  static Future<String> halfSession(String username, {int? epoch}) async {
     final token = _token();
-    await Redis.setEx('2fa:${hashToken(token)}', username, _secondFactorTtl);
+    await Redis.setEx('2fa:${hashToken(token)}', jsonEncode([username, epoch ?? await _epoch(username)]), _secondFactorTtl);
     return token;
   }
 
   /// Who is waiting for the code (without using up the token — the code may be mistyped).
-  static Future<String?> awaitingCode(String token) async =>
-      validToken(token) ? await Redis.get('2fa:${hashToken(token)}') : null;
+  static Future<String?> awaitingCode(String token) async => (await awaiting(token))?.$1;
+
+  /// [awaitingCode] with the epoch of the password step. A value in another format = none.
+  static Future<(String, int)?> awaiting(String token) async {
+    if (!validToken(token)) return null;
+    final v = await Redis.get('2fa:${hashToken(token)}');
+    try {
+      final l = v == null ? null : jsonDecode(v);
+      return l is List && l.length == 2 && l[0] is String && l[1] is int ? (l[0] as String, l[1] as int) : null;
+    } on FormatException {
+      return null;
+    }
+  }
 
   static Future<void> endAwaiting(String token) async {
     if (validToken(token)) await Redis.del('2fa:${hashToken(token)}');
