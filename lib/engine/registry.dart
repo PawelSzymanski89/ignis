@@ -149,7 +149,10 @@ class PageRegistry {
 }
 
 /// Command that (re)generates the registry — quoted in every start-up message about it.
-const buildCommand = 'dart run build_runner build';
+const buildCommand = 'dart run build_runner build --delete-conflicting-outputs';
+
+/// Command that keeps the registry current during development (rebuilds after every save).
+const watchCommand = 'dart run build_runner watch';
 
 /// Start-up error when there is neither a generated registry nor dart:mirrors (AOT).
 const noRegistryError = 'Ignis: no page/entity registry — this is an AOT build (no dart:mirrors), so pass the generated '

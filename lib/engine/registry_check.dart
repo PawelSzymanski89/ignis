@@ -5,8 +5,8 @@
 //  entity table/pk/@Cached/unique/fields (name, type, default), page @Page metadata,
 //  actions, synced fields and the AdminPage/CustomerPage flags. Used by the parity
 //  test and by Ignis.start in JIT (generated registry vs the dart:mirrors scan), so a
-//  forgotten `dart run build_runner build` stops the node instead of serving
-//  yesterday's routes.
+//  forgotten `dart run build_runner build` gives a warning and a start on the scan
+//  instead of serving yesterday's routes.
 // ============================================================================
 
 import 'annotations.dart';

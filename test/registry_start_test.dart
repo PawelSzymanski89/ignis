@@ -1,5 +1,6 @@
 // Ignis.resolveRegistry (Ignis.start): without a registry → mirrors scan + one warning line (JIT); with the
-// generated one → core + app, compared with mirrors; a stale one stops the start with the build command. Bez bazy.
+// generated one → core + app, compared with mirrors; a stale one → one warning (differences + build/watch
+// commands) and the start goes on with the mirrors scan. Bez bazy.
 import 'package:ignis/ignis.dart';
 import 'package:ignis/ignis_registry.g.dart';
 
@@ -64,25 +65,29 @@ void main() {
   check('routes and entities come from it',
       PageRegistry.match('/test-start-app') != null && EntityRegistry.byType(StartNote).table == 'test_start_notes');
 
-  Object? error;
-  try {
-    Ignis.resolveRegistry(IgnisRegistry(entities: [_appEntity()], pages: [_appPage('/test-start-old')]));
-  } catch (e) {
-    error = e;
-  }
+  warnings.clear();
+  final stale = Ignis.resolveRegistry(IgnisRegistry(entities: [_appEntity()], pages: [_appPage('/test-start-old')]),
+      warn: warnings.add);
+  check('a changed @Page in the code → the start goes on, with exactly one warning', warnings.length == 1);
   check(
-      'a changed @Page in the code → the start is refused with the class and the command',
-      error is StateError &&
-          '$error'.contains('StartAppPage') &&
-          '$error'.contains('/test-start-old') &&
-          '$error'.contains(buildCommand));
+      'the warning names the class, the old route and both build_runner commands',
+      warnings.single.contains('StartAppPage') &&
+          warnings.single.contains('/test-start-old') &&
+          warnings.single.contains('dart run build_runner build --delete-conflicting-outputs') &&
+          warnings.single.contains('dart run build_runner watch'));
+  check(
+      'the node runs on the dart:mirrors scan (current route, not the stale one)',
+      stale.pages.any((p) => p.page.route == '/test-start-app') &&
+          !stale.pages.any((p) => p.page.route == '/test-start-old') &&
+          stale.pages.any((p) => p.page.route == '/admin'));
 
-  error = null;
-  try {
-    Ignis.resolveRegistry(IgnisRegistry(entities: const [], pages: [_appPage('/test-start-app')]));
-  } catch (e) {
-    error = e;
-  }
-  check('an @Entity added after the last build → refused, named as missing',
-      error is StateError && '$error'.contains('StartNote') && '$error'.contains('missing'));
+  warnings.clear();
+  final missing = Ignis.resolveRegistry(IgnisRegistry(entities: const [], pages: [_appPage('/test-start-app')]),
+      warn: warnings.add);
+  check(
+      'an @Entity added after the last build → one warning naming it as missing, start on the scan',
+      warnings.length == 1 &&
+          warnings.single.contains('StartNote') &&
+          warnings.single.contains('missing') &&
+          missing.entities.any((e) => e.type == StartNote));
 }

@@ -107,7 +107,8 @@ class Ignis {
 
   /// The registry the node runs on:
   ///  • [app] given — the core registry + [app]; in JIT it is compared with the dart:mirrors scan first, and a
-  ///    stale one (class added/changed after the last build) stops the start with the list and [buildCommand],
+  ///    stale one (class added/changed after the last build) gives ONE warning (the differences, [buildCommand]
+  ///    and [watchCommand]) and the node runs on the scan instead,
   ///  • no [app], JIT — the dart:mirrors scan (as before 0.3.0) and one warning line,
   ///  • no [app], AOT — [StateError] ([noRegistryError]).
   static IgnisRegistry resolveRegistry(IgnisRegistry? app, {void Function(String) warn = _warn}) {
@@ -123,8 +124,10 @@ class Ignis {
     if (scanned != null) {
       final diff = registryDifferences(merged, scanned, bothWays: false);
       if (diff.isNotEmpty) {
-        throw StateError('Ignis: the generated registry (ignis_registry.g.dart) is out of date — run `$buildCommand` '
-            'and restart:\n  • ${diff.join('\n  • ')}');
+        warn('Ignis WARNING: the generated registry (ignis_registry.g.dart) is out of date — starting on the '
+            'dart:mirrors scan instead (JIT only; an AOT build would run the stale one). Run `$buildCommand`, or keep '
+            '`$watchCommand` running during development:\n  • ${diff.join('\n  • ')}');
+        return scanned;
       }
     }
     return merged;
