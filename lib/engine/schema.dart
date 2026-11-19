@@ -243,6 +243,17 @@ class Schema {
     return errors;
   }
 
+  /// Whether `current_user` owns any engine table (it can then change or drop the RLS policies).
+  static Future<bool> _ownsTables(dynamic c) async {
+    final tables = [for (final n in EntityRegistry.names) EntityRegistry.byName(n).table];
+    final r = await c.execute(
+        Sql.named('''SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                     WHERE n.nspname = current_schema() AND c.relname = ANY(string_to_array(@t, ','))
+                       AND pg_has_role(current_user, c.relowner, 'USAGE'))'''),
+        parameters: {'t': tables.join(',')});
+    return r.first[0] == true;
+  }
+
   /// Session advisory lock taken by [sync] and `Seed.seed` (same key there): nodes starting at once would
   /// otherwise race on CREATE TABLE / ADD COLUMN and on the initial admin account.
   static const _startLock = 0x49676e73;
@@ -255,6 +266,11 @@ class Schema {
       await c.execute('SELECT pg_advisory_lock($_startLock)');
       try {
         if (mode != 'none') await _sync(mode);
+        if (mode != 'update' && await _ownsTables(c)) {
+          stdout.writeln('Ignis: the database role owns the engine tables, but IGNIS_SCHEMA=$mode — a node that does not '
+              'migrate should run on a role with DML grants only, so a compromised node cannot ALTER/DROP RLS policies '
+              '(SECURITY.md, "Runtime database role").');
+        }
         final rls = await checkRls(c);
         if (rls.isNotEmpty) {
           throw StateError('RLS does not match the code — the node will not start without service isolation:\n  • ${rls.join('\n  • ')}');

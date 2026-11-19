@@ -57,14 +57,46 @@ address, the `staff` realm, the account belonging to *this* service, and the per
   `set_config`, like a request — and through the session-level `Db.asSystemSession`, used only by
   the schema builder, the seed and the `bin/` tools. Context `'0'` is the platform panel.
 - Covered are **all tables with a `service` column**, with `FORCE ROW LEVEL SECURITY`, because the app
-  role owns the tables and would otherwise bypass its own policies (see "Known gaps" for a separate
-  runtime role).
+  role owns the tables and would otherwise bypass its own policies (see "Runtime database role" below
+  for running nodes on a role that owns nothing).
 - The write policy is **strict** (`service = context`). Read-only exceptions are explicit: `audit_log`
   also shows rows with `target = <service>` (platform actions about this service). This read exception
   does not grant the right to write those rows. `users` has no exception: a service does not see
   platform accounts (`service = 0`).
 - Setup failures are not swallowed: `Schema.checkRls` verifies `ENABLE`+`FORCE` and the full policy
   set (with no foreign policies) in every `IGNIS_SCHEMA` mode; a mismatch aborts start-up.
+
+### Runtime database role
+
+The role that owns the tables can `ALTER`/`DROP` their policies. Split it: the **owner** only migrates
+(one deploy step or one node with `IGNIS_SCHEMA=update`), the serving nodes run on a **runtime role** with
+DML grants and `IGNIS_SCHEMA=validate`. Run as a superuser, once (names are examples):
+
+```sql
+CREATE ROLE ignis_owner LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '…';
+CREATE ROLE ignis_rt    LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '…';
+CREATE DATABASE ignis OWNER ignis_owner;
+\c ignis
+-- (PostgreSQL 15+: the public schema is owned by pg_database_owner, i.e. ignis_owner)
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO ignis_rt;
+-- tables created by the owner from now on (every migration):
+ALTER DEFAULT PRIVILEGES FOR ROLE ignis_owner IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ignis_rt;
+ALTER DEFAULT PRIVILEGES FOR ROLE ignis_owner IN SCHEMA public
+  GRANT USAGE ON SEQUENCES TO ignis_rt;
+-- tables that already exist (an install that ran as one role so far; also fine to repeat):
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ignis_rt;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
+```
+
+- Migrate: `IGNIS_DB_USER=ignis_owner IGNIS_SCHEMA=update` (an existing install: transfer ownership with
+  `ALTER TABLE … OWNER TO ignis_owner` first, or keep the current role as the owner).
+- Serve: `IGNIS_DB_USER=ignis_rt IGNIS_SCHEMA=validate`. `Schema.checkRls` and the seed work on this role;
+  policy changes and DDL fail with `42501 must be owner`. `IGNIS_SCHEMA=update` on it fails the same way.
+- A node whose role owns the engine tables while `IGNIS_SCHEMA` is not `update` logs a warning at start-up.
+- Limit: the runtime role can still widen its own context with `set_config('ignis.service', '*', true)`
+  (see above) — the split stops lasting policy changes, not context widening by injected SQL.
 
 ## Authentication and sessions
 
@@ -228,7 +260,7 @@ requests without it makes the health check — with node and backend state — p
 | **coarse request-concurrency limit** | one isolate per node; above `IGNIS_MAX_INFLIGHT` (512) requests in flight, or when no pool connection frees up within 5 s, the node answers `503` with `Retry-After`; API bodies have no shared byte budget (up to 8 MB each after gzip) | `engine/engine.dart` (`Engine.guarded`), `engine/db.dart` |
 | **pagination only where `Listing` is used** | pages without it load everything | panel |
 | **backend TLS is off by default and not mutually authenticated** | relies on a private network unless `IGNIS_DB_SSL` / `IGNIS_S3_SSL` / `IGNIS_REDIS_TLS` are set | deployment |
-| **the app role owns the tables** | RLS holds via `FORCE`, but a compromised role could `ALTER`/`DROP` policies; a separate runtime role without table ownership is a deployment step | deployment, `engine/schema.dart` |
+| **one database role by default** | RLS holds via `FORCE`, but if nodes run on the table owner a compromised node could `ALTER`/`DROP` policies; splitting owner and runtime role is a deployment step ([Runtime database role](#runtime-database-role)), warned about at start-up | deployment, `engine/schema.dart` |
 
 ### Open decisions (owner)
 

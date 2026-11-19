@@ -2,7 +2,7 @@
 # Tests on a real Postgres (no Docker or root): binaries from npm @embedded-postgres (pinned version),
 # cluster in a private user directory (~/.cache/ignis-pg by default, 0700 — not in /tmp, where another user
 # could plant binaries), port 55433, database ignistest (owner: a regular role ignis_app, no BYPASSRLS)
-# dropped on every run. Local Redis (redis-server) on 56379.
+# dropped on every run; ignis_rt — a runtime role owning nothing (test/runtime_role_pg_test.dart). Local Redis (redis-server) on 56379.
 #   tool/pg_test.sh [test file …]   (test/*_pg_test.dart by default)
 #   IGNIS_PG_DIR / IGNIS_PG_PORT / IGNIS_PG_REDIS_PORT — a second cluster alongside (e.g. a parallel worktree)
 cd "$(dirname "$0")/.." || exit 1
@@ -29,7 +29,7 @@ $B/bin/pg_ctl -D $P/data status >/dev/null 2>&1 || $B/bin/pg_ctl -D $P/data -o "
 redis-cli -p $RPORT ping >/dev/null 2>&1 || redis-server --port $RPORT --save '' --appendonly no --daemonize yes >/dev/null || exit 1
 redis-cli -p $RPORT flushall >/dev/null
 export IGNIS_DB_HOST=127.0.0.1 IGNIS_DB_PORT=$PORT IGNIS_DB_USER=ig IGNIS_DB_PASS=ig IGNIS_DB_NAME=postgres
-dart run tool/pg_new_db.dart ignistest ignis_app ignisapp || exit 1
+dart run tool/pg_new_db.dart ignistest ignis_app ignisapp ignis_rt ignisrt || exit 1
 export IGNIS_DB_NAME=ignistest IGNIS_DB_USER=ignis_app IGNIS_DB_PASS=ignisapp IGNIS_REDIS_HOST=127.0.0.1 IGNIS_REDIS_PORT=$RPORT
 export IGNIS_DOMAINS=${IGNIS_DOMAINS:-localhost}
 export IGNIS_KEY=${IGNIS_KEY:-$(printf '0123456789abcdef%.0s' {1..4})}

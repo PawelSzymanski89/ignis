@@ -408,7 +408,7 @@ All configuration comes from environment variables read by the engine. The requi
 | `IGNIS_REDIS_TLS` | — | `1` = TLS to Redis, verified against system CAs |
 | `IGNIS_PORT` | `8080` | HTTP listen port |
 | `IGNIS_NODE` | `node` | node name in logs, locks and the audit log |
-| `IGNIS_SCHEMA` | `update` | `update` creates tables and columns, `validate` and `none` only check |
+| `IGNIS_SCHEMA` | `update` | `update` creates tables and columns, `validate` and `none` only check. Serving nodes: `validate` on a runtime role without table ownership ([SECURITY.md](SECURITY.md#runtime-database-role)) |
 | `IGNIS_ASSETS` | `web/assets` | directory with the theme's static files (`/assets/…`) |
 | `IGNIS_TRUSTED_PROXIES` | — | IPs/CIDRs whose `X-Forwarded-For` is trusted |
 | `IGNIS_TIMEOUT_S` | `120` | whole-request deadline in seconds |
@@ -493,7 +493,6 @@ English; a Polish translation of the panel ships in `i18n/pl.json`. See the [cha
 Open items already recorded in [SECURITY.md](SECURITY.md#known-gaps-and-debt) — directions, not promises:
 
 - **Key rotation with a key id** — today rotation is two-key (`IGNIS_KEY_PREVIOUS` + `bin/rekey.dart`), ciphertexts carry no key id.
-- **Separate runtime database role** without table ownership, so a compromised role cannot alter RLS policies.
 - **Request-concurrency limit** — one isolate per node, no backpressure today.
 - **Open decisions:** tenant subdomains vs. a separate registrable domain, per-tenant namespacing of staff
   logins, and whether an unset `IGNIS_TRUSTED_PROXIES` should block start-up.
