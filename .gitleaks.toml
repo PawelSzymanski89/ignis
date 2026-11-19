@@ -1,0 +1,10 @@
+# gitleaks configuration (SECURITY.md, "CI scans"): the default rules, plus path allowlists — not fingerprints,
+# which carry the commit SHA and stop matching after a squash or rebase.
+[extend]
+useDefault = true
+
+# owner: cygan; reason: test passwords, keys and JWT / TOTP vectors in test code are fixtures, not secrets;
+# review-by: 2027-05-19
+[allowlist]
+description = "test fixtures"
+paths = ['''^test/''']

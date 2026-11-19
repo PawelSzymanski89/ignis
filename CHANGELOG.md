@@ -63,7 +63,8 @@ Hardening follow-up to 0.2.0 (HARD-L.13). Details in `SECURITY.md`.
   instead of only warning — checked before the schema sync, so a refused node runs no DDL; any value other than
   empty or `1` also refuses to start. `tool/runtime_role.sql` holds the owner + runtime role recipe from `SECURITY.md`.
 - CI `scan` job: `gitleaks` on the pushed / PR commits and `osv-scanner` on `pubspec.lock` (actions pinned by
-  SHA); exception policy in `SECURITY.md`, "CI scans".
+  SHA); exception policy in `SECURITY.md`, "CI scans". gitleaks false positives are allowed by path in
+  `.gitleaks.toml` (test fixtures), not by SHA-bound fingerprints.
 
 ### Documentation
 

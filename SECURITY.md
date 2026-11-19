@@ -312,9 +312,12 @@ requests without it makes the health check — with node and backend state — p
 
 - The `scan` job runs `gitleaks` on the pushed / pull-request commits and `osv-scanner` on `pubspec.lock`;
   a finding fails the job. Actions are pinned by commit SHA.
-- Exceptions: a gitleaks false positive goes to `.gitleaksignore` (fingerprint), an accepted advisory to
-  `osv-scanner.toml` (`[[IgnoredVulns]]` with `ignoreUntil` and `reason`). Each exception names its owner, the
-  reason and a review-by date; an expired one is removed or renewed with a new reason, not left in place.
+- Exceptions: a gitleaks false positive goes to the path allowlist in `.gitleaks.toml` (test fixtures under
+  `test/`) or gets a `gitleaks:allow` comment on its line — not a `.gitleaksignore` fingerprint, which carries the
+  commit SHA and stops matching after a squash or rebase. There are no accepted osv-scanner advisories; a finding
+  is fixed by upgrading the dependency. Each exception names its owner, the reason and a review-by date; an
+  expired one is removed or renewed with a new reason, not left in place.
+- `pubspec.lock` is committed, so the job scans the resolved versions without running `dart pub get`.
 
 ## Third-party notes
 
