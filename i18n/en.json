@@ -24,6 +24,7 @@
   "ignis.error.other.title": "Could not complete",
   "ignis.error.other.text": "This page cannot be shown right now.",
   "ignis.node.title": "Cluster node that served this request",
+  "ignis.login.title": "Sign in",
   "ignis.login.lead": "Sign in to continue.",
   "ignis.login.heading": "Admin panel",
   "ignis.nav.my_permissions": "My permissions",

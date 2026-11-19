@@ -1,22 +1,30 @@
 # Changelog
 
-## 0.2.0 — 2026-11-18
+## 0.2.0 — 2026-11-19
 
-Hardening release after an external review. Details in `SECURITY.md`.
+Hardening release after an external review and its follow-up. Details in `SECURITY.md`.
 
 ### Security
 
 - Elevated blocks (`Db.asSystem` / `Db.asPlatform`) inside a request restore the request's own context
-  instead of a value read back from the database, so overlapping blocks can no longer leave a request
-  elevated; blocks of one request are serialized. `Db.release()` / `Db.commit()` inside such a block throw
-  `StateError`, and an error in the block body is no longer masked by the context reset.
-- `@Cached` mirror: written to Redis only after COMMIT and dropped after the transaction ends (no phantom
-  rows after a rollback); `@Cached` is refused on every table under row-level security.
+  instead of a value read back from the database. The zone carries the block itself (with an `active` flag),
+  so a Future that outlives its block no longer runs on the parent's elevated path; parallel blocks of one
+  request — top-level or nested — are serialized, each restoring its parent's (or the request's) context.
+  A block waiting over 30 s for its turn (e.g. a nested block awaited by its parent's sibling) gets a
+  `StateError` instead of hanging. Tests cover overlapping, un-awaited and outliving blocks.
+- `@Cached` mirror is invalidate-on-write and read-through: writes only delete the Redis key (right away and
+  again after the transaction ends, commit or rollback), a session with uncommitted writes reads past the
+  mirror and never fills it, and a reader fills it under a `SET NX` lease, so an older value read in
+  parallel with a write is not stored. Mirrored `DateTime` values are UTC; an unparsable entry is a miss.
+  `@Cached` is refused on every table under row-level security.
 - Template rendering escapes a `MapEntry` in the model (`map.entries.toList()`) and every interpolated value
   that is not a string, number, bool or `Html` (objects with their own `toString()`, exceptions,
   records), also inside printed collections and in the `string` / `join` filters. Macros and `Html` are
   unchanged; the `~` operator is not covered (`SECURITY.md`).
-- Start-up warning when a backend host (PostgreSQL, Redis, S3) is outside loopback while its TLS is off.
+- Start-up warning when a backend host (PostgreSQL, Redis, S3) is outside loopback while its TLS is off, and
+  for a remote PostgreSQL with `IGNIS_DB_SSL=require` (certificate not verified).
+- `IGNIS_TRUSTED_PROXIES` entries must be IPs or CIDRs: a host name, garbage or a `/0` prefix stops the node;
+  `none` is accepted in any case.
 - Start-up warning when the database role owns the engine tables while `IGNIS_SCHEMA` is not `update`;
   `SECURITY.md` has ready SQL for an owner (migrations) + runtime role (DML grants, `IGNIS_SCHEMA=validate`).
 
@@ -28,7 +36,17 @@ Hardening release after an external review. Details in `SECURITY.md`.
 
 ### Changed
 
+- `Db.release()` / `Db.commit()` inside an elevated block throw `StateError`, and so does an elevated block
+  that waits too long for its turn; an error in the block body is no longer masked by the context reset.
+- `@Cached` on an entity whose table is under row-level security stops the node (`StateError`).
+- `@Cached` writes invalidate the mirror instead of writing it; the next read refills it.
 - `{{ x }}` with `x == null` prints an empty string (it used to print `null`).
+- The default platform tenant is named `Platform`; the login page title has its own i18n key
+  (`ignis.login.title`) instead of the submit button label.
+- `IGNIS_MAX_INFLIGHT` other than an integer ≥ 1 stops the node (it used to fall back to 512 silently).
+- `Schema.sync` and `Seed.seed` take the start-up lock with `pg_try_advisory_lock` in a loop: a wait is
+  logged ("waiting for start-up lock") and gives up after 5 minutes; `Ignis.start` holds one lock around both.
+- `pubspec.yaml` description is in English.
 
 ### Added
 
@@ -37,18 +55,25 @@ Hardening release after an external review. Details in `SECURITY.md`.
   reports the number of records, exits with 1 when a value is readable with neither key. The ciphertext
   format is unchanged. A malformed `IGNIS_KEY_PREVIOUS` stops the node.
 - Backpressure: `IGNIS_MAX_INFLIGHT` (512 by default) — requests above it get `503` with `Retry-After`
-  before routing; a request that cannot get a pool connection in time also gets `503` instead of `500`.
-- CI: GitHub Actions running `dart analyze`, the tests without a database and `tool/pg_test.sh`;
-  Dependabot for `pub` and `github-actions`.
+  before routing (logged like other requests, at most one line a second); a request that cannot get a pool
+  connection in time also gets `503` instead of `500`. This is a coarse limit, not a per-client quota.
+- `bin/rekey.dart` counts only rows it actually updated (a value changed meanwhile is reported, not counted)
+  and writes an audit log entry for each run.
+- CI: GitHub Actions running `dart analyze`, the tests without a database and `tool/pg_test.sh`, each test
+  file under a 300 s timeout; actions pinned to commit SHAs; Dependabot for `pub` and `github-actions`.
+- Destructive PostgreSQL tests run only with `IGNIS_PG_TEST=1` (set by `tool/pg_test.sh`) against a database
+  whose name contains `test`; otherwise they skip with a message, so a shared database is never touched.
 
 ### Fixed
 
 - Nodes starting at the same time on a fresh database no longer race on `CREATE TABLE` / `ADD COLUMN`
-  and the initial admin account: `Schema.sync` and `Seed.seed` share one start-up advisory lock.
+  and the initial admin account: `Schema.sync` and `Seed.seed` run under one start-up advisory lock; an
+  error in them is no longer masked by a failed unlock.
 - `DateTime` fields read from the `@Cached` mirror come back as `DateTime`, not strings.
-- Runtime messages and comments in `lib/` are in English (the default platform tenant name is now
-  `Platform`, the login page title comes from i18n); the empty partial-index hook in `schema.dart` is gone.
-- Documentation: `SECURITY.md` matches the code on the `users` policy, the README says which tests skip
+- Runtime messages and comments in `lib/` are in English; the empty partial-index hook in `schema.dart` is
+  gone.
+- Documentation: `SECURITY.md` covers PostgreSQL ≤ 14 (`REVOKE CREATE ON SCHEMA public`), the rolling-restart
+  window of key rotation and the `~` template operator; it matches the code on the `users` policy, the README says which tests skip
   themselves without a database or Redis, the `@SessionSynced` Redis key is described correctly.
 
 ## 0.1.1 — 2026-11-18

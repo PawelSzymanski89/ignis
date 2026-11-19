@@ -1,8 +1,8 @@
 name: ignis
 description: >-
-  Ignis Web Engine — biblioteka CMS multidomenowego (jedna instalacja, wiele usług pod własnymi
-  domenami): silnik stron i encji przez adnotacje + panel administracyjny.
-  Używa dart:mirrors — działa tylko w JIT (`dart run`), bez AOT.
+  Ignis Web Engine — a multi-domain CMS library (one installation, many services on their own
+  domains): an annotation-driven page and entity engine plus an admin panel.
+  Uses dart:mirrors — runs in JIT only (`dart run`), no AOT.
 publish_to: none
 version: 0.2.0
 repository: https://github.com/PawelSzymanski89/ignis

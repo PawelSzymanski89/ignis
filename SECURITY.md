@@ -78,7 +78,10 @@ CREATE ROLE ignis_owner LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '…';
 CREATE ROLE ignis_rt    LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '…';
 CREATE DATABASE ignis OWNER ignis_owner;
 \c ignis
--- (PostgreSQL 15+: the public schema is owned by pg_database_owner, i.e. ignis_owner)
+-- (PostgreSQL 15+: the public schema is owned by pg_database_owner, i.e. ignis_owner, and PUBLIC has no
+-- CREATE on it. PostgreSQL ≤ 14: public is owned by the bootstrap superuser and every role may create
+-- objects there — the REVOKE below is then required, and the owner needs GRANT CREATE ON SCHEMA public
+-- TO ignis_owner, or ALTER SCHEMA public OWNER TO ignis_owner.)
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO ignis_rt;
 -- tables created by the owner from now on (every migration):
@@ -96,6 +99,8 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
 - Serve: `IGNIS_DB_USER=ignis_rt IGNIS_SCHEMA=validate`. `Schema.checkRls` and the seed work on this role;
   policy changes and DDL fail with `42501 must be owner`. `IGNIS_SCHEMA=update` on it fails the same way.
 - A node whose role owns the engine tables while `IGNIS_SCHEMA` is not `update` logs a warning at start-up.
+  In the default single-role setup with `IGNIS_SCHEMA=update` (the default) there is no warning — that role
+  owns the tables by design. A superuser or `BYPASSRLS` role is not warned about but refused (above).
 - Limit: the runtime role can still widen its own context with `set_config('ignis.service', '*', true)`
   (see above) — the split stops lasting policy changes, not context widening by injected SQL.
 
@@ -168,8 +173,13 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
      decryption tries the current key first, then the previous one; new writes use the current key;
   2. run `dart run bin/rekey.dart` once (same environment): it re-encrypts settings secrets and TOTP seeds
      under the current key, is idempotent and prints how many records it changed; exit code 1 means some
-     value is readable with neither key — keep `IGNIS_KEY_PREVIOUS` until that is explained;
+     value is readable with neither key — keep `IGNIS_KEY_PREVIOUS` until that is explained; a value changed
+     while it ran is reported as "changed meanwhile" (run it again); every run leaves an audit log entry;
   3. remove `IGNIS_KEY_PREVIOUS` and restart.
+  During a rolling restart in step 1, nodes still on the old key alone cannot read secrets that already-
+  restarted nodes wrote under the new key (they read as empty, and TOTP sign-in for such an account fails
+  closed): keep the window short, avoid editing secrets or enabling TOTP until every node runs with both
+  keys, and run step 2 only after that.
   Signatures (`engine/signature.dart`) use only the current key: signed links issued before the rotation
   stop verifying. A malformed `IGNIS_KEY_PREVIOUS` stops the node.
 - Secrets **do not return to the browser**: the form only knows "set / unset", and an empty field on
@@ -268,7 +278,7 @@ requests without it makes the health check — with node and backend state — p
 | **coarse request-concurrency limit** | one isolate per node; above `IGNIS_MAX_INFLIGHT` (512) requests in flight, or when no pool connection frees up within 5 s, the node answers `503` with `Retry-After`; API bodies have no shared byte budget (up to 8 MB each after gzip) | `engine/engine.dart` (`Engine.guarded`), `engine/db.dart` |
 | **pagination only where `Listing` is used** | pages without it load everything | panel |
 | **backend TLS is off by default and not mutually authenticated** | relies on a private network unless `IGNIS_DB_SSL` / `IGNIS_S3_SSL` / `IGNIS_REDIS_TLS` are set; a non-loopback host without TLS is warned about at start-up | deployment |
-| **one database role by default** | RLS holds via `FORCE`, but if nodes run on the table owner a compromised node could `ALTER`/`DROP` policies; splitting owner and runtime role is a deployment step ([Runtime database role](#runtime-database-role)), warned about at start-up | deployment, `engine/schema.dart` |
+| **one database role by default** | RLS holds via `FORCE`, but if nodes run on the table owner a compromised node could `ALTER`/`DROP` policies; splitting owner and runtime role is a deployment step ([Runtime database role](#runtime-database-role)); a warning is logged only when the owner role runs with `IGNIS_SCHEMA` other than `update` (the default single-role setup is silent) | deployment, `engine/schema.dart` |
 
 ### Open decisions (owner)
 

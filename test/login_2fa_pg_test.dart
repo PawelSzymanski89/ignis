@@ -62,6 +62,14 @@ Future<void> main(List<String> args) async {
   server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   server.listen((req) => Engine.guarded(req, () => dispatch(req, const [])));
 
+  // HARD-L.12.9: the page title comes from its own i18n key, not from the submit button label
+  for (final (lang, title) in [('pl', 'Logowanie'), ('en', 'Sign in')]) {
+    final g = await client.get('127.0.0.1', server.port, '/admin/login?lang=$lang');
+    g.headers.host = 'localhost';
+    final html = await (await g.close()).transform(utf8.decoder).join();
+    check('login page title ($lang) = ignis.login.title', RegExp('<title>$title\\b').hasMatch(html));
+  }
+
   Future<String> step1(int i) async {
     final (_, html, _) = await post({'username': login, 'password': password}, ip: '10.0.1.$i');
     return step2(html) ?? (throw StateError('brak kroku 2: ${html.length > 300 ? html.substring(0, 300) : html}'));

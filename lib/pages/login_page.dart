@@ -216,7 +216,7 @@ class LoginPage extends PageEngine {
   @override
   void insertData() {
     put('brand', Ignis.brand);
-    put('page_title', t('ignis.login.submit'));
+    put('page_title', t('ignis.login.title'));
     // message after a password change or closed session — only with our signature,
     // so a foreign link cannot show its own text on the sign-in screen
     final f = flashFromUrl();

@@ -24,6 +24,7 @@
   "ignis.error.other.title": "Nie udało się",
   "ignis.error.other.text": "Tej strony nie da się teraz wyświetlić.",
   "ignis.node.title": "Węzeł klastra, który obsłużył to żądanie",
+  "ignis.login.title": "Logowanie",
   "ignis.login.lead": "Zaloguj się, aby kontynuować.",
   "ignis.login.heading": "Panel administracyjny",
   "ignis.nav.my_permissions": "Moje uprawnienia",
