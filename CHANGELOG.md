@@ -60,6 +60,11 @@ Hardening follow-up to 0.2.0 (HARD-L.13). Details in `SECURITY.md`.
   limits (`~`, `replace`, functions in the model) and on `Orm.readAll` / `CustomerAccounts.list` without
   `LIMIT`; the backend TLS profile added to the open owner decisions.
 
+### Fixed
+
+- `Redis.delMany` sends one `DEL` per key: a multi-key `DEL` across hash slots failed with `CROSSSLOT` on
+  Redis Cluster, and the session / permission cache cleanup after a password change quietly did nothing.
+
 ## 0.2.0 — 2026-11-19
 
 Hardening release after an external review and its follow-up. Details in `SECURITY.md`.

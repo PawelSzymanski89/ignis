@@ -125,9 +125,10 @@ class Redis {
     } while (cursor != '0');
   }
 
-  /// DEL of many keys in one command.
+  /// DEL of many keys, one DEL per key (sent together): on Redis Cluster a multi-key DEL across hash slots fails
+  /// with CROSSSLOT.
   static Future<void> delMany(List<String> keys) async {
-    if (keys.isNotEmpty) await cmd(['DEL', ...keys]);
+    await Future.wait([for (final k in keys) del(k)]);
   }
 
   /// SADD key member.
