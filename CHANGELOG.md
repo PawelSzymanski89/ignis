@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.3.0 — Unreleased
+
+Pages and entities come from a registry generated at build time (`ignis_builder`, build_runner) instead of
+`dart:mirrors`, so a node also runs as an AOT binary (`dart compile exe`). `dart:mirrors` is deprecated since
+Dart 3.14 and "will be removed in a future release" (dart-lang/sdk#44489).
+
+### Upgrade notes
+
+- **You do not have to change anything.** An app that calls `Ignis.start(...)` without a registry keeps running
+  under `dart run` exactly as on 0.2.x (a `dart:mirrors` scan), with one warning line at start-up naming the
+  command below. Optionally, for AOT and to stop depending on `dart:mirrors`:
+  1. add `build_runner` and `ignis_builder` (`git: …, path: ignis_builder`) to `dev_dependencies`;
+  2. run `dart run build_runner build --delete-conflicting-outputs` (or keep `dart run build_runner watch`
+     running) and commit the generated `lib/ignis_registry.g.dart`;
+  3. `import 'package:<your_app>/ignis_registry.g.dart';` and pass `registry: ignisRegistry` to `Ignis.start`.
+- With a registry, every page and entity class must live under `lib/` (the builder reads every `lib/**.dart`;
+  `bin/` and `test/` are not scanned) and have an unnamed constructor without required parameters (the build
+  fails with file, line and class otherwise). Column defaults must be constant expressions; a non-constant one
+  gives a build warning and no column default. Private classes and fields are not registered.
+- AOT binary: set `IGNIS_PACKAGE_ROOT` to a copy of the ignis package directory (`templates/`, `i18n/`,
+  `web/`) — a compiled binary has no package config. In templates `{{ obj.field }}` on a plain Dart object
+  needs `dart:mirrors`; pass Maps (as the core pages now do) for AOT.
+
+### Added
+
+- `ignis_builder` package (repository subdirectory): an aggregating builder, `auto_apply: dependents`,
+  `build_to: source` — writes `lib/ignis_registry.g.dart` with `ignisRegistry` (entities, fields with
+  getter/setter closures and const defaults, pages, `@Action` methods, synced fields). Deterministic output;
+  no `build.yaml` or stub file in the app. The core's own registry ships generated in the `ignis` package.
+- `Ignis.start(registry:)` (optional) and `Ignis.resolveRegistry`; metadata types `IgnisRegistry`,
+  `EntityMeta`, `FieldMeta`, `PageMeta`, `SyncedMeta`.
+- In JIT a supplied registry is compared with the `dart:mirrors` scan at start-up; if it is out of date (a
+  page or entity added or changed after the last build) the node prints ONE warning listing the differences
+  and the build / watch commands, then runs on the scan. An AOT build without a registry stops with a
+  `StateError` naming the command.
+- `IGNIS_PACKAGE_ROOT` (AOT), `tool/aot_smoke.sh` (compiled binary vs `dart run`: health, sign-in, panel
+  pages, CRUD round-trip, identical HTML).
+
+### Changed
+
+- Engine, ORM and schema read metadata through the registry closures; `dart:mirrors` is imported only by
+  `lib/engine/mirrors_scan.dart` and `lib/engine/attribute_mirrors.dart`, behind conditional imports, and
+  goes away once Dart removes it. The `IGNIS_LEGACY_MIRRORS` switch used during the migration is gone.
+- The dashboard passes permission packages to its template as Maps.
+- No change to SQL, multi-tenancy, RLS, authentication, sessions, templates or i18n; annotation signatures
+  (`@Entity`, `@Cached`, `@Page`, `@Action`, …) are unchanged.
+
 ## 0.2.2 — 2026-11-19
 
 ### Changed
