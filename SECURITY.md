@@ -117,7 +117,9 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
   (`__Host-ignis_session` for the panel, `__Host-ignis_customer` for customers, `__Host-ignis_csrf`). A
   password change or account deletion kills all sessions — after the request's transaction ends
   (`Db.afterTransaction`), as does dropping the permission cache, so a parallel request cannot re-cache the old
-  permissions or log in with the old password between the kill and COMMIT. Session, 2FA, reset and client tokens are
+  permissions or log in with the old password between the kill and COMMIT. Panel and customer sessions both carry
+  `users.session_epoch`, compared with the database on every request; a password change bumps it, so a session that
+  outlives the Redis cleanup is still rejected. Session, 2FA, reset and client tokens are
   matched against `^[0-9a-f]{48}$` before Redis.
 - **Rate limits**: login 30 attempts / 5 min per IP, then 5 / 5 min per login+IP pair (panel and
   front), so a foreign address cannot lock someone else's account. The client IP comes from

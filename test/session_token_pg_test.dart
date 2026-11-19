@@ -40,8 +40,10 @@ Future<void> main() async {
 
   // SEC-A-16: wartości jako JSON — `|` w e-mailu nie przesuwa pól, stary format `a|b` nie jest czytany
   final t = 'b' * 48;
+  // HARD-L.13.1: an e-mail with | is checked in customer_session_epoch_pg_test (the session reads the epoch from the database)
   await Redis.setEx('csess:${Sessions.hashToken(t)}', jsonEncode([1, 'a|x@d.pl']), 60);
-  check('e-mail z | wraca w całości', (await CustomerAccounts.session(t, 1))?.email == 'a|x@d.pl');
+  check('value without the session epoch rejected', await CustomerAccounts.session(t, 1) == null);
+  await Redis.setEx('csess:${Sessions.hashToken(t)}', jsonEncode([1, 'a|x@d.pl', 0]), 60);
   check('sesja klienta w innej usłudze — brak', await CustomerAccounts.session(t, 2) == null);
   await Redis.setEx('csess:${Sessions.hashToken(t)}', '1|a', 60);
   check('stary format a|b odrzucony (bez wyjątku)', await CustomerAccounts.session(t, 1) == null);

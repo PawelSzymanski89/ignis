@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- Customer sessions carry `users.session_epoch`, read together with the password hash at sign-in, and
+  `CustomerAccounts.session()` compares it with the database. A customer password change (admin or reset link)
+  bumps the epoch in the same statement and cleans Redis up after the transaction ends, so a session
+  created with the old password in parallel, or one whose Redis key survived, is rejected. Customer sessions
+  stored before this change have no epoch and are rejected — customers sign in again once.
+
 ## 0.2.0 — 2026-11-19
 
 Hardening release after an external review and its follow-up. Details in `SECURITY.md`.

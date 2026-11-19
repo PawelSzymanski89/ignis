@@ -4,6 +4,7 @@
 //  Customer account = a `users` row with realm `customer`, login = e-mail:
 //    • password set by an admin (bcrypt like panel accounts),
 //    • password reset: a one-time token from an e-mail (1 h), only its SHA-256 in Redis; it also expires after a password change,
+//    • session token in Redis with `users.session_epoch`; a password change bumps the epoch, which ends every session,
 //  Session in a separate cookie (`ignis_customer`), never in the panel one — a customer
 //  account has no way into the back office, because the back office reads another cookie.
 //  The account is just an e-mail — what the customer sees after sign-in is added by the app.
@@ -92,13 +93,22 @@ class CustomerAccounts {
     final h = await Db.bcrypt(() => Db.hashPassword(password));
     await (await Db.connect()).execute(
         Sql.named('''INSERT INTO users (username, pass_hash, realm, service) VALUES (@u, @h, 'customer', @s)
-                     ON CONFLICT (username) DO UPDATE SET pass_hash = EXCLUDED.pass_hash
+                     ON CONFLICT (username) DO UPDATE SET pass_hash = EXCLUDED.pass_hash,
+                       session_epoch = users.session_epoch + 1
                      WHERE users.realm = 'customer' '''),
         parameters: {'u': accountLogin(service, e), 'h': h, 's': service});
-    // customer sessions live only in Redis: the error goes up and rolls the password change back, instead of leaving
-    // a stolen session for 30 days alongside a success message
-    final tokens = await Redis.smembers('csessuser:$service|$e');
-    await Redis.delMany([for (final t in tokens) 'csess:$t', 'csessuser:$service|$e']);
+    // the epoch cuts the sessions off; deleting them in Redis only cleans up, after the transaction (like Sessions.destroyAll)
+    // tokens collected now: a session opened later in the same request is not lost in the cleanup
+    try {
+      final tokens = await Redis.smembers('csessuser:$service|$e');
+      if (tokens.isEmpty) return null;
+      await Db.afterTransaction(() async {
+        try {
+          await Redis.delMany([for (final t in tokens) 'csess:$t']);
+          await Redis.cmd(['SREM', 'csessuser:$service|$e', ...tokens]);
+        } catch (_) {/* the epoch rejects old sessions anyway */}
+      });
+    } catch (_) {/* Redis down → the epoch rejects old sessions anyway */}
     return null;
   }
 
@@ -175,9 +185,11 @@ class CustomerAccounts {
     }
     await releaseUnderAttack('rl:caccount:${Sessions.hashToken('$service|$e')}');
     final rows = await (await Db.connect()).execute(
-        Sql.named("SELECT pass_hash FROM users WHERE username=@u AND realm='customer' AND service=@s"),
+        Sql.named("SELECT pass_hash, session_epoch FROM users WHERE username=@u AND realm='customer' AND service=@s"),
         parameters: {'u': accountLogin(service, e), 's': service});
     final hash = rows.isEmpty ? '' : rows.first[0] as String? ?? '';
+    // read together with the hash: a password change committed during bcrypt rejects this session
+    final epoch = rows.isEmpty ? 0 : rows.first[1] as int;
     await Db.release(); // bcrypt without holding a pool connection
     if (!await Db.bcrypt(() => passwordMatches(password, hash))) return (null, passwordMessage);
     if (Db.weakHash(hash)) {
@@ -189,7 +201,7 @@ class CustomerAccounts {
     try {
       await Redis.delMany(['rl:clogin:${Sessions.hashToken('$service|$e|$a')}', 'rl:caccount:${Sessions.hashToken('$service|$e')}']);
     } catch (_) {}
-    return (await _session(service, e), '');
+    return (await _session(service, e, epoch), '');
   }
 
   /// Account created on first sign-in; every sign-in (password, link, Google/Apple) records its time.
@@ -219,13 +231,13 @@ class CustomerAccounts {
   }
 
   /// Creates the account on first sign-in and opens a session.
-  static Future<String> _session(int service, String email) async {
+  static Future<String> _session(int service, String email, int epoch) async {
     final c = await Db.connect();
     await c.execute(
       Sql.named(accountSessionSql),
       parameters: {'u': accountLogin(service, email), 's': service, 'n': DateTime.now().millisecondsSinceEpoch});
     final t = _token();
-    await Redis.setEx('csess:${Sessions.hashToken(t)}', jsonEncode([service, email]), _ttl);
+    await Redis.setEx('csess:${Sessions.hashToken(t)}', jsonEncode([service, email, epoch]), _ttl);
     await Redis.sadd('csessuser:$service|$email', Sessions.hashToken(t));
     await Redis.expire('csessuser:$service|$email', _ttl); // the set lives as long as the newest session
     return t;
@@ -234,8 +246,18 @@ class CustomerAccounts {
   static Future<CustomerSession?> session(String? token, int service) async {
     if (!Sessions.validToken(token)) return null;
     final parts = _list(await Redis.get('csess:${Sessions.hashToken(token!)}'));
-    if (parts == null || parts.length != 2 || parts[0] != service || parts[1] is! String) return null;
-    return CustomerSession(parts[1] as String, service);
+    // a value without the epoch (older format) is not valid — those customers sign in again
+    if (parts == null || parts.length != 3 || parts[0] != service || parts[1] is! String || parts[2] is! int) return null;
+    final email = parts[1] as String;
+    Future<bool> current() async {
+      final r = await (await Db.connect()).execute(
+          Sql.named("SELECT session_epoch FROM users WHERE username=@u AND realm='customer' AND service=@s"),
+          parameters: {'u': accountLogin(service, email), 's': service});
+      return r.isNotEmpty && r.first[0] == parts[2];
+    }
+
+    final ok = (await Db.connect()).inContext ? await current() : await Db.inContext(service, current);
+    return ok ? CustomerSession(email, service) : null;
   }
 
   /// Redis value as a JSON list — a `|` in the e-mail will not shift fields (SEC-A-16). Any other format = none.
