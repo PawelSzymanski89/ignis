@@ -13,8 +13,9 @@ Hardening release after an external review. Details in `SECURITY.md`.
 - `@Cached` mirror: written to Redis only after COMMIT and dropped after the transaction ends (no phantom
   rows after a rollback); `@Cached` is refused on every table under row-level security.
 - Template rendering escapes a `MapEntry` in the model (`map.entries.toList()`) and every interpolated value
-  that is not a string, number, bool, collection or `Html` (objects with their own `toString()`, exceptions,
-  records). Macros, filters and `Html` are unchanged.
+  that is not a string, number, bool or `Html` (objects with their own `toString()`, exceptions,
+  records), also inside printed collections and in the `string` / `join` filters. Macros and `Html` are
+  unchanged; the `~` operator is not covered (`SECURITY.md`).
 - Start-up warning when a backend host (PostgreSQL, Redis, S3) is outside loopback while its TLS is off.
 - Start-up warning when the database role owns the engine tables while `IGNIS_SCHEMA` is not `update`;
   `SECURITY.md` has ready SQL for an owner (migrations) + runtime role (DML grants, `IGNIS_SCHEMA=validate`).
@@ -24,6 +25,10 @@ Hardening release after an external review. Details in `SECURITY.md`.
 - `IGNIS_TRUSTED_PROXIES` is required: unset or empty, the node refuses to start with a message saying what
   to set. Behind a reverse proxy set the proxy's IPs/CIDRs; with clients connecting directly set
   `IGNIS_TRUSTED_PROXIES=none` (the previous default behaviour).
+
+### Changed
+
+- `{{ x }}` with `x == null` prints an empty string (it used to print `null`).
 
 ### Added
 

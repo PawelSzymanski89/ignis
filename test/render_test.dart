@@ -24,7 +24,7 @@ class Shout {
 
 void main() {
   String r(String tpl, Map<String, Object?> model) =>
-      Environment(getAttribute: Renderer.env.getAttribute, finalize: Renderer.env.finalize)
+      Environment(getAttribute: Renderer.env.getAttribute, finalize: Renderer.env.finalize, filters: Renderer.env.filters)
           .fromString(tpl)
           .render(Map<String, Object?>.from(Renderer.sanitize(model) as Map));
 
@@ -67,6 +67,25 @@ void main() {
       r('{% macro b(t) %}<b>{{ t }}</b>{% endmacro %}{{ b(x) }}', {'x': x}) == '<b>$xe</b>');
   check('filters work on escaped values', r('{{ x|upper }}|{{ l|join(",") }}', {'x': 'a<', 'l': ['<', 'b']}) == 'A&LT;|&lt;,b');
   check('null prints empty', r('[{{ n }}]', {'n': null}) == '[]');
+
+  print('HARD-L.12.4 — collections and the string/join filters:');
+  final mixed = {'l': [Shout(), const FormatException(x), (x, 1)]};
+  const shown = '$xe, FormatException: $xe, ($xe, 1)';
+  check('{{ l }} with an object, an exception and a record', r('{{ l }}', mixed) == '[$shown]');
+  check("{{ l|join(', ') }}", r("{{ l|join(', ') }}", mixed) == shown);
+  check('{{ o|string }} for a list', r('{{ o|string }}', {'o': mixed['l']}) == '[$shown]');
+  check('{{ o|string }} for an object', r('{{ o|string }}', {'o': Shout()}) == xe);
+  check('{{ m }} with an object value', r('{{ m }}', {'m': {'k': Shout()}}) == '{k: $xe}');
+  check('strings in a joined list escaped once', r('{{ l|join }}', {'l': [x, 1]}) == '${xe}1');
+  check('Html in a list and in join passes unchanged',
+      r('{{ l }}|{{ l|join }}|{{ h|string }}', {'l': [const Html('<b>')], 'h': const Html('<i>')}) == '[<b>]|<b>|<i>');
+  check('super() and caller() unchanged',
+      Environment(loader: MapLoader({'base': '{% block b %}<p>{% endblock %}'}), finalize: Renderer.env.finalize,
+                  filters: Renderer.env.filters)
+                  .fromString("{% extends 'base' %}{% block b %}{{ super() }}<q>{% endblock %}")
+                  .render() ==
+              '<p><q>' &&
+          r('{% macro w() %}<b>{{ caller() }}</b>{% endmacro %}{% call w() %}<i>{% endcall %}', {}) == '<b><i></b>');
 
   print('szablony z kilku katalogów:');
   final app = Directory.systemTemp.createTempSync('ignis_szablony_');

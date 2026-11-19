@@ -138,10 +138,13 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
 - **SQL**: parameterised queries only (`Sql.named`). Interpolated parts are literals from code (column
   names, constant conditions), never user data.
 - **XSS**: Jinja 0.6.7 has **no autoescape**, so escaping is done by `Renderer` (`engine/render.dart`)
-  — every String in the model, in nested maps and lists, and object fields read via mirrors. Trusted
-  HTML passes only as `Html(...)`. **User data never goes into JavaScript**: confirmations use `data-*`,
-  and the brand reaches JS through `document.body.dataset.brand`, because an HTML attribute is decoded
-  before the JS engine sees it.
+  — every String in the model, in nested maps and lists, and object fields read via mirrors; at output, any
+  other value (objects with their own `toString()`, exceptions, records), also inside a printed collection and
+  in the `string` / `join` filters. Trusted HTML passes only as `Html(...)`. Known limit: the `~` operator
+  concatenates through `toString()` before escaping, so `{{ obj ~ 'x' }}` prints the object's `toString()`
+  raw — pass strings (escaped by the model) to `~`, or format the value in Dart. **User data never goes into
+  JavaScript**: confirmations use `data-*`, and the brand reaches JS through `document.body.dataset.brand`,
+  because an HTML attribute is decoded before the JS engine sees it.
 - **CSP**: both layouts ship a default `Content-Security-Policy` (`script-src 'self'`, `object-src
   'none'`, `base-uri`/`form-action 'self'`). All scripts are files under `/assets/`; there are no inline
   `<script>`, `on*=` handlers or `javascript:` URLs. Uploaded objects are served with `nosniff` and

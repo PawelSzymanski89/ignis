@@ -12,7 +12,10 @@
 //  So we escape ON OUR SIDE, before data reaches the template:
 //    • every String in the model (also in nested Map/List) — in `sanitize()`,
 //    • object fields read through mirrors (`p.name`) — in `_attribute()`,
-//    • anything else that reaches `{{ }}` (own toString(), exceptions, records) — in `_finalize()`.
+//    • anything else that reaches `{{ }}` (own toString(), exceptions, records), also inside collections
+//      and in the `string`/`join` filters — in `_finalize()`.
+//  The `~` operator concatenates through toString() before `_finalize()`: `{{ obj ~ 'x' }}` with an object
+//  whose toString() holds markup prints it raw (SECURITY.md).
 //  Trusted HTML is inserted deliberately, wrapped in `Html('<b>…</b>')` — only
 //  this type passes unchanged. Macros and {{ super() }} generate HTML in the template,
 //  so we do not touch them.
@@ -80,16 +83,26 @@ class Renderer {
         autoReload: false,
         getAttribute: _attribute,
         finalize: _finalize,
+        filters: {'string': _string, 'join': _join},
       );
 
   /// Last line of defence at every `{{ }}`: values `sanitize()` did not reach print through
-  /// `toString()`, so they are escaped here. Strings, collections and MapEntry are already clean
-  /// (or are macro/filter output), Html is trusted.
-  static Object _finalize(Object? v) => switch (v) {
-        null => '',
-        String() || num() || bool() || Html() || Map() || Iterable() || MapEntry() => v,
+  /// `toString()`, so they are escaped here. null prints as ''.
+  static Object _finalize(Object? v) => _safe(v) ?? '';
+
+  /// Strings are already clean (model, macro or filter output), Html is trusted; collections are rebuilt with every
+  /// other element (object, exception, record) escaped, because they print through the elements' `toString()`.
+  static Object? _safe(Object? v) => switch (v) {
+        null || String() || num() || bool() || Html() => v,
+        Map m => {for (final e in m.entries) _safe(e.key): _safe(e.value)},
+        MapEntry e => MapEntry(_safe(e.key), _safe(e.value)),
+        Iterable l => [for (final x in l) _safe(x)],
         _ => _esc.convert(v.toString()),
       };
+
+  /// `|string` and `|join` of jinja call `toString()` on objects and return a String, which [_finalize] trusts.
+  static String _string(Object? v) => '${_safe(v)}';
+  static String _join(Iterable<Object?> values, [String delimiter = '']) => values.map(_safe).join(delimiter);
 
   /// `x.y` in a template. Maps are read directly (no mirrors and no
   /// NoSuchMethodError exception on every dot), object fields through reflection — and those
