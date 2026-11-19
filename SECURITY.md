@@ -71,7 +71,8 @@ address, the `staff` realm, the account belonging to *this* service, and the per
 
 The role that owns the tables can `ALTER`/`DROP` their policies. Split it: the **owner** only migrates
 (one deploy step or one node with `IGNIS_SCHEMA=update`), the serving nodes run on a **runtime role** with
-DML grants and `IGNIS_SCHEMA=validate`. Run as a superuser, once (names are examples):
+DML grants and `IGNIS_SCHEMA=validate`. Run as a superuser, once (names are examples; the same script is in
+`tool/runtime_role.sql`):
 
 ```sql
 CREATE ROLE ignis_owner LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '…';
@@ -98,6 +99,8 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
   `ALTER TABLE … OWNER TO ignis_owner` first, or keep the current role as the owner).
 - Serve: `IGNIS_DB_USER=ignis_rt IGNIS_SCHEMA=validate`. `Schema.checkRls` and the seed work on this role;
   policy changes and DDL fail with `42501 must be owner`. `IGNIS_SCHEMA=update` on it fails the same way.
+- With `IGNIS_REQUIRE_RUNTIME_ROLE=1` a node whose role owns any engine table refuses to start (`StateError`),
+  in every `IGNIS_SCHEMA` mode — set it on serving nodes, not on the migrating one.
 - A node whose role owns the engine tables while `IGNIS_SCHEMA` is not `update` logs a warning at start-up.
   In the default single-role setup with `IGNIS_SCHEMA=update` (the default) there is no warning — that role
   owns the tables by design. A superuser or `BYPASSRLS` role is not warned about but refused (above).
@@ -284,7 +287,7 @@ requests without it makes the health check — with node and backend state — p
 | **coarse request-concurrency limit** | one isolate per node; above `IGNIS_MAX_INFLIGHT` (512) requests in flight, or when no pool connection frees up within 5 s, the node answers `503` with `Retry-After`; API bodies share `IGNIS_API_BODY_BUDGET_MB` (64 MB) and multipart uploads `IGNIS_UPLOAD_BUDGET_MB` (64 MB), other form bodies (256 KB each) only the request limit | `engine/engine.dart` (`Engine.guarded`), `engine/db.dart` |
 | **pagination only where `Listing` is used** | pages without it load everything | panel |
 | **backend TLS is off by default and not mutually authenticated** | relies on a private network unless `IGNIS_DB_SSL` / `IGNIS_S3_SSL` / `IGNIS_REDIS_TLS` are set; a non-loopback host without TLS is warned about at start-up | deployment |
-| **one database role by default** | RLS holds via `FORCE`, but if nodes run on the table owner a compromised node could `ALTER`/`DROP` policies; splitting owner and runtime role is a deployment step ([Runtime database role](#runtime-database-role)); a warning is logged only when the owner role runs with `IGNIS_SCHEMA` other than `update` (the default single-role setup is silent) | deployment, `engine/schema.dart` |
+| **one database role by default** | RLS holds via `FORCE`, but if nodes run on the table owner a compromised node could `ALTER`/`DROP` policies; splitting owner and runtime role is a deployment step ([Runtime database role](#runtime-database-role)); a warning is logged only when the owner role runs with `IGNIS_SCHEMA` other than `update` (the default single-role setup is silent); `IGNIS_REQUIRE_RUNTIME_ROLE=1` turns ownership into a start-up refusal (opt-in) | deployment, `engine/schema.dart` |
 
 ### Open decisions (owner)
 

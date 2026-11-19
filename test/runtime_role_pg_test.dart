@@ -26,9 +26,14 @@ ALTER DEFAULT PRIVILEGES FOR ROLE ignis_app IN SCHEMA public GRANT USAGE ON SEQU
 const warning = 'owns the engine tables';
 
 /// Child: schema sync + seed as a node would run them at start-up, then a write under RLS.
-Future<ProcessResult> node(String user, String password, String mode) => Process.run(
+Future<ProcessResult> node(String user, String password, String mode, {bool requireRuntimeRole = false}) => Process.run(
     Platform.resolvedExecutable, [Platform.script.toFilePath(), 'node'],
-    environment: {'IGNIS_DB_USER': user, 'IGNIS_DB_PASS': password, 'IGNIS_SCHEMA': mode});
+    environment: {
+      'IGNIS_DB_USER': user,
+      'IGNIS_DB_PASS': password,
+      'IGNIS_SCHEMA': mode,
+      if (requireRuntimeRole) 'IGNIS_REQUIRE_RUNTIME_ROLE': '1',
+    });
 
 Future<void> main(List<String> a) async {
   if (skipDestructive()) return;
@@ -76,6 +81,8 @@ Future<void> main(List<String> a) async {
   var r = await node('ignis_rt', 'ignisrt', 'validate');
   check('runtime role with DML grants starts with IGNIS_SCHEMA=validate', r.exitCode == 0 && '${r.stdout}'.contains('STARTED'));
   check('runtime role — no ownership warning', !'${r.stdout}${r.stderr}'.contains(warning));
+  r = await node('ignis_rt', 'ignisrt', 'validate', requireRuntimeRole: true);
+  check('HARD-L.13.8: runtime role with IGNIS_REQUIRE_RUNTIME_ROLE=1 starts', r.exitCode == 0 && '${r.stdout}'.contains('STARTED'));
   r = await node('ignis_rt', 'ignisrt', 'update');
   check('runtime role cannot migrate (IGNIS_SCHEMA=update fails)', r.exitCode != 0);
   check('…with insufficient_privilege (42501)', '${r.stdout}${r.stderr}'.contains('42501'));
@@ -93,6 +100,10 @@ Future<void> main(List<String> a) async {
   r = await node(owner, ownerPassword, 'validate');
   check('table owner with IGNIS_SCHEMA=validate starts', r.exitCode == 0);
   check('table owner outside update — warning in the log', '${r.stdout}${r.stderr}'.contains(warning));
+  r = await node(owner, ownerPassword, 'validate', requireRuntimeRole: true);
+  check('HARD-L.13.8: table owner with IGNIS_REQUIRE_RUNTIME_ROLE=1 → refused with StateError',
+      r.exitCode != 0 && !'${r.stdout}'.contains('STARTED') &&
+          '${r.stderr}'.contains('Bad state: IGNIS_REQUIRE_RUNTIME_ROLE=1'));
   r = await node(owner, ownerPassword, 'update');
   check('table owner migrating (update) — no warning', r.exitCode == 0 && !'${r.stdout}${r.stderr}'.contains(warning));
   print('\nALL PASSED');
