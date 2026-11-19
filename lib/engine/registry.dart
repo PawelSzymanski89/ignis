@@ -1,60 +1,36 @@
 // ============================================================================
-//  registry.dart — route registry built by REFLECTION (dart:mirrors)
+//  registry.dart — route registry built from IgnisRegistry metadata
 // ----------------------------------------------------------------------------
-//  The heart of "natural reflection": at startup we scan ALL loaded
-//  libraries, look for classes annotated with @Page that extend PageEngine
-//  and build a route -> (ClassMirror + @Page metadata) map.
-//
-//  ⚠️ The class must be REACHABLE (imported somewhere in the program, here in
-//     lib/pages.dart). The Dart VM does not load code nothing refers to —
-//     then mirrors will not see it.
-//
-//  Reflection is expensive, so we do it ONCE at startup (build()) and then
-//  work on the ready map.
+//  At startup Ignis hands over an [IgnisRegistry] (generated lib/ignis_registry.g.dart,
+//  or — JIT fallback — the dart:mirrors scan) and we build a route -> (PageMeta + @Page)
+//  map once; requests then work on the ready map.
 // ============================================================================
 
-// ponytail: dart:mirrors is deprecated since Dart 3.14 (dart-lang/sdk#44489); drop this ignore when Ignis moves to explicit registration.
-// ignore: deprecated_member_use
-import 'dart:mirrors';
-
-import 'admin_page.dart';
 import 'annotations.dart';
-import 'customer_page.dart';
+import 'meta.dart';
+import 'mirrors_scan_stub.dart' if (dart.library.mirrors) 'mirrors_scan.dart';
 import 'page_engine.dart';
-import 'session.dart' show Sessions;
 
-/// Description of a field marked @Synced / @SessionSynced (for hydrate/persist from Redis).
-class SyncedField {
-  final String name;      // field name
-  final bool isSession;   // true = @SessionSynced (per-user, session TTL); false = @Synced (global)
-  final Type type;        // field type (bool/int/double/String) — for (de)serialization
-  SyncedField(this.name, this.isSession, this.type);
+export 'meta.dart';
 
-  /// Redis key. Global: synced:<Class>.<field>; session: ssync:<sha256(token)>:<Class>.<field> (outside sess:).
-  String redisKey(String cls, String? token) =>
-      isSession ? 'ssync:${Sessions.hashToken(token!)}:$cls.$name' : 'synced:$cls.$name';
-}
-
-/// One registry entry: how to build the page, its @Page metadata and synced fields.
+/// One registry entry: how to build the page, its @Page metadata, synced fields and actions.
 class PageRoute {
-  /// Mirror of the page class — used to create an instance per request.
-  final ClassMirror classMirror;
+  /// Mirror-free description of the page class (constructor, actions, synced fields).
+  final PageMeta pageMeta;
+
+  PageRoute(this.pageMeta);
 
   /// The @Page annotation (route/template/redirect/requires).
-  final Page meta;
+  Page get meta => pageMeta.page;
 
-  /// @Synced / @SessionSynced fields of this class (detected once, at startup).
-  final List<SyncedField> syncedFields;
+  /// @Synced / @SessionSynced fields of this class.
+  List<SyncedMeta> get syncedFields => pageMeta.synced;
 
-  /// @Action methods: action name → list of method symbols (run before insertData).
-  final Map<String, List<Symbol>> actions;
-
-  PageRoute(this.classMirror, this.meta, this.syncedFields, this.actions);
+  /// @Action methods: action name → closures invoking them (run before insertData).
+  Map<String, List<Object? Function(Object)>> get actions => pageMeta.actions;
 
   /// Creates a fresh page instance (new per request — no shared state).
-  /// Assumes a no-arg constructor in the page class.
-  PageEngine newInstance() =>
-      classMirror.newInstance(const Symbol(''), const []).reflectee as PageEngine;
+  PageEngine newInstance() => pageMeta.ctor() as PageEngine;
 }
 
 /// Global route registry. Filled once by build().
@@ -148,34 +124,16 @@ class PageRegistry {
     ];
   }
 
-  /// Reflective scan: walk libraries → classes → find @Page.
-  /// Called once, at server startup (bin/server.dart).
-  static void build() {
+  /// Builds the route table from [registry]; without it (JIT only) from the dart:mirrors scan.
+  /// Called once, at server startup (Ignis.start).
+  static void build([IgnisRegistry? registry]) {
+    final source = registry ?? scanWithMirrors();
+    if (source == null) throw StateError(noRegistryError);
     _routes.clear();
-    final mirrors = currentMirrorSystem();
-    // the base type pages MUST extend
-    final pageEngineType = reflectClass(PageEngine);
-    final cookieAuth = [reflectClass(AdminPage), reflectClass(CustomerPage)];
     final refused = <String>[];
-
-    for (final lib in mirrors.libraries.values) {
-      for (final decl in lib.declarations.values) {
-        if (decl is! ClassMirror) continue;
-        // the page must extend PageEngine
-        if (!decl.isSubclassOf(pageEngineType)) continue;
-
-        // we look for @Page metadata on the class
-        for (final meta in decl.metadata) {
-          final r = meta.reflectee;
-          if (r is Page) {
-            if ((r.api || r.cors) && cookieAuth.any(decl.isSubclassOf)) {
-              refused.add('${r.route} (${MirrorSystem.getName(decl.simpleName)})');
-            }
-            _routes[r.route] = PageRoute(decl, r, _scanSynced(decl), scanActions(decl));
-            break; // one @Page per class
-          }
-        }
-      }
+    for (final p in source.pages) {
+      if ((p.page.api || p.page.cors) && p.cookieAuth) refused.add('${p.page.route} (${p.typeName})');
+      _routes[p.page.route] = PageRoute(p);
     }
     if (refused.isNotEmpty) {
       throw StateError('@Page(api: true) / @Page(cors: true) skip CSRF, so they must not authenticate by cookie; '
@@ -188,45 +146,12 @@ class PageRegistry {
         if (r.meta.api && r.meta.route.split('/').length > 2) r.meta.route.split('/')[1]
     };
   }
-
-  /// Scan of the class fields annotated with @Synced / @SessionSynced (once, at startup).
-  static List<SyncedField> _scanSynced(ClassMirror cls) {
-    final out = <SyncedField>[];
-    for (final d in cls.declarations.values) {
-      if (d is! VariableMirror || d.isStatic) continue;
-      for (final m in d.metadata) {
-        final r = m.reflectee;
-        if (r is SyncedMarker || r is SessionSyncedMarker) {
-          out.add(SyncedField(
-            MirrorSystem.getName(d.simpleName),
-            r is SessionSyncedMarker,
-            d.type.reflectedType,
-          ));
-          break;
-        }
-      }
-    }
-    return out;
-  }
-
-  /// Scan of the class methods annotated with @Action → name → [method Symbol] map.
-  /// Also from the page's base classes (actions shared by several pages); a method overridden in a subclass counts once.
-  static Map<String, List<Symbol>> scanActions(ClassMirror cls) {
-    final out = <String, List<Symbol>>{};
-    final seen = <Symbol>{};
-    final pageEngine = reflectClass(PageEngine);
-    for (ClassMirror? c = cls; c != null && c != pageEngine; c = c.superclass) {
-      for (final d in c.declarations.values) {
-        if (d is! MethodMirror || !d.isRegularMethod || d.isStatic || !seen.add(d.simpleName)) continue;
-        for (final m in d.metadata) {
-          final r = m.reflectee;
-          if (r is Action) {
-            (out[r.name] ??= <Symbol>[]).add(d.simpleName);
-            break;
-          }
-        }
-      }
-    }
-    return out;
-  }
 }
+
+/// Command that (re)generates the registry — quoted in every start-up message about it.
+const buildCommand = 'dart run build_runner build --delete-conflicting-outputs';
+
+/// Start-up error when there is neither a generated registry nor dart:mirrors (AOT).
+const noRegistryError = 'Ignis: no page/entity registry — this is an AOT build (no dart:mirrors), so pass the generated '
+    'one: add ignis_builder to dev_dependencies, run `$buildCommand`, then '
+    "`import 'ignis_registry.g.dart';` and `Ignis.start(registry: ignisRegistry, …)`.";

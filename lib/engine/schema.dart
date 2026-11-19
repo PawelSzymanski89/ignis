@@ -1,5 +1,5 @@
 // ============================================================================
-//  schema.dart — AUTO-SCHEMA from reflection (the equivalent of hibernate.hbm2ddl.auto)
+//  schema.dart — AUTO-SCHEMA from entity metadata (the equivalent of hibernate.hbm2ddl.auto)
 // ----------------------------------------------------------------------------
 //  Since EntityRegistry knows the fields of every @Entity anyway, the same source is enough
 //  to produce DDL. Instead of writing and deploying migration files, the node at startup
@@ -29,20 +29,6 @@ import 'migration.dart';
 import 'orm.dart';
 
 class Schema {
-  /// Field defaults — read from a FRESH entity instance via mirrors.
-  /// So `String realm = 'staff'` in the class gives `DEFAULT 'staff'` in DDL,
-  /// and adding a column to an existing table does not leave NULLs in the rows.
-  static Map<String, Object?> _defaults(EntityMeta m) {
-    try {
-      final inst = m.cm.newInstance(const Symbol(''), const []);
-      return {
-        for (final f in m.fields) f.name: inst.getField(Symbol(f.name)).reflectee,
-      };
-    } catch (_) {
-      return const {}; // no no-arg constructor — no defaults
-    }
-  }
-
   static String _sqlLiteral(Object? v) => switch (v) {
         String s => "'${s.replaceAll("'", "''")}'",
         bool b => b.toString(),
@@ -57,7 +43,7 @@ class Schema {
     final sql = switch (n) {
       'int' => 'bigint',
       'double' => 'double precision',
-      'bool' => 'boolean', // DEFAULT is added by _defaults() from the field value
+      'bool' => 'boolean', // DEFAULT comes from the field initializer (FieldMeta.defaultValue)
       'DateTime' => 'timestamptz',
       _ => 'text',
     };
@@ -322,9 +308,10 @@ class Schema {
         parameters: {'t': m.table},
       )).first[0] as bool;
 
-      final defaults = _defaults(m);
-      String column(EntityField f) {
-        final def = defaults[f.name];
+      String column(FieldMeta f) {
+        // `String realm = 'staff'` in the class gives `DEFAULT 'staff'` in DDL, so adding a column
+        // to an existing table does not leave NULLs in the rows
+        final def = f.defaultValue;
         final pk = f.name == m.pk;
         final d = (!pk && def != null) ? ' NOT NULL DEFAULT ${_sqlLiteral(def)}' : '';
         return '"${f.name}" ${_type(f.type, pk: pk)}$d';

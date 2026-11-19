@@ -1,7 +1,8 @@
 // ============================================================================
-//  orm.dart — reflection ODM (ZERO codegen)
+//  orm.dart — annotation-driven ODM
 // ----------------------------------------------------------------------------
-//  @Entity on a plain class → mirrors read the fields → parameterized SQL.
+//  @Entity on a plain class → field metadata (EntityMeta: generated registry, or the
+//  dart:mirrors scan in JIT) → parameterized SQL.
 //  API (from PageEngine): saveEntity, readEntity<T>(id), readEntitys<T>().
 //  Primary key: @Entity(pk:) (`id` by default) — save/read/delete/insert/upsert use it.
 //
@@ -12,78 +13,38 @@
 // ============================================================================
 
 import 'dart:convert';
-// ponytail: dart:mirrors is deprecated since Dart 3.14 (dart-lang/sdk#44489); drop this ignore when Ignis moves to explicit registration.
-// ignore: deprecated_member_use
-import 'dart:mirrors';
 
 import 'package:postgres/postgres.dart' hide Type;
 
-import 'annotations.dart';
 import 'db.dart';
+import 'meta.dart';
+import 'mirrors_scan_stub.dart' if (dart.library.mirrors) 'mirrors_scan.dart';
+import 'registry.dart' show noRegistryError;
 import 'redis.dart';
 import 'crypto.dart';
 import 'schema.dart';
 
-/// Description of an entity field (column).
-class EntityField {
-  final String name;
-  final Type type;
-  EntityField(this.name, this.type);
-}
+export 'meta.dart';
 
-/// Entity metadata collected by reflection once, at startup.
-class EntityMeta {
-  final ClassMirror cm;
-  final String table;
-  final List<EntityField> fields;
-  final bool cached;
-  /// Lifetime of the Redis mirror in seconds (from @Cached(ttl:)); 0 = no expiry.
-  final int ttl;
-  /// Primary key column (from @Entity(pk:)); 'id' by default.
-  final String pk;
-  /// UNIQUE constraints (from @Entity(unique:)) — used by auto-schema.
-  final List<List<String>> unique;
-  EntityMeta(this.cm, this.table, this.fields, this.cached,
-      {this.ttl = 0, this.pk = 'id', this.unique = const []});
-
-  /// Fields without the primary key (for INSERT/UPDATE).
-  Iterable<EntityField> get nonId => fields.where((f) => f.name != pk);
-  String get typeName => MirrorSystem.getName(cm.simpleName);
-}
+/// Former name of [FieldMeta] (entity field / column).
+typedef EntityField = FieldMeta;
 
 /// Entity registry: Type → metadata. Built once (EntityRegistry.build()).
 class EntityRegistry {
   static final Map<String, EntityMeta> _byName = {};
 
-  static void build() {
+  /// Fills the registry from [registry]; without it (JIT only) from the dart:mirrors scan.
+  static void build([IgnisRegistry? registry]) {
+    final source = registry ?? scanWithMirrors();
+    if (source == null) throw StateError(noRegistryError);
     _byName.clear();
-    for (final lib in currentMirrorSystem().libraries.values) {
-      for (final decl in lib.declarations.values) {
-        if (decl is! ClassMirror) continue;
-        Entity? ent;
-        Cached? cached;
-        for (final m in decl.metadata) {
-          final r = m.reflectee;
-          if (r is Entity) ent = r;
-          if (r is Cached) cached = r;
-        }
-        if (ent == null) continue;
-        final fields = <EntityField>[];
-        for (final d in decl.declarations.values) {
-          if (d is VariableMirror && !d.isStatic) {
-            fields.add(EntityField(MirrorSystem.getName(d.simpleName), d.type.reflectedType));
-          }
-        }
-        final name = MirrorSystem.getName(decl.simpleName);
-        final meta = EntityMeta(decl, ent.table, fields, cached != null,
-            ttl: cached?.ttl ?? 0, pk: ent.pk, unique: ent.unique);
-        // the `entity:<Type>:<id>` mirror does not know the service, and Orm.read from the mirror bypasses RLS —
-        // service A would read service B's row by id alone (SEC-A-5); any table under RLS, not only with `service`
-        if (cached != null && Schema.rlsScoped(meta)) {
-          throw StateError('@Cached on an RLS-scoped entity ($name, table ${ent.table}) would bypass service isolation');
-        }
-        _byName[name] = meta;
+    for (final meta in source.entities) {
+      // the `entity:<Type>:<id>` mirror does not know the service, and Orm.read from the mirror bypasses RLS —
+      // service A would read service B's row by id alone (SEC-A-5); any table under RLS, not only with `service`
+      if (meta.cached && Schema.rlsScoped(meta)) {
+        throw StateError('@Cached on an RLS-scoped entity (${meta.typeName}, table ${meta.table}) would bypass service isolation');
       }
+      _byName[meta.typeName] = meta;
     }
   }
 
@@ -116,14 +77,13 @@ class Orm {
   /// by key) under a per-entity lock. Keys assigned by the app: [insert]/[upsert].
   static Future<void> save(Object entity) async {
     final meta = EntityRegistry.byInstance(entity);
-    final im = reflect(entity);
-    final pk = Symbol(meta.pk);
-    final id = im.getField(pk).reflectee;
+    final pk = meta.fields.firstWhere((f) => f.name == meta.pk);
+    final id = pk.get(entity);
     final conn = await Db.connect();
 
     // field values (without id on INSERT)
-    Map<String, Object?> values(Iterable<EntityField> fs) => {
-          for (final f in fs) f.name: im.getField(Symbol(f.name)).reflectee,
+    Map<String, Object?> values(Iterable<FieldMeta> fs) => {
+          for (final f in fs) f.name: f.get(entity),
         };
 
     // PER-ENTITY lock (for an existing id). For a new one (INSERT) the database assigns the id.
@@ -136,11 +96,11 @@ class Orm {
         final sql = 'INSERT INTO ${meta.table} (${cols.join(',')}) '
             'VALUES (${cols.map((c) => '@$c').join(',')}) RETURNING ${meta.pk}';
         final res = await conn.execute(Sql.named(sql), parameters: values(meta.nonId));
-        im.setField(pk, res.first[0]); // write the assigned id back
+        pk.set(entity, res.first[0]); // write the assigned id back
       } else {
         await conn.execute(Sql.named(updateSql(meta)), parameters: values(meta.fields));
       }
-      if (meta.cached) await _invalidate(meta, im.getField(pk).reflectee);
+      if (meta.cached) await _invalidate(meta, pk.get(entity)!);
     } finally {
       if (owner != null) await unlock(lockKey!, owner);
     }
@@ -155,8 +115,7 @@ class Orm {
 
   static Future<bool> _insertRow(Object entity, String Function(EntityMeta) sql) async {
     final meta = EntityRegistry.byInstance(entity);
-    final im = reflect(entity);
-    final vals = {for (final f in meta.fields) f.name: im.getField(Symbol(f.name)).reflectee};
+    final vals = {for (final f in meta.fields) f.name: f.get(entity)};
     final r = await (await Db.connect()).execute(Sql.named(sql(meta)), parameters: vals);
     if (r.affectedRows > 0 && meta.cached) await _invalidate(meta, vals[meta.pk]!);
     return r.affectedRows > 0;
@@ -221,13 +180,13 @@ class Orm {
 
   // --- helpers ----------------------------------------------------------------
 
-  /// Builds an entity instance from a column→value map (mirrors newInstance + setField).
+  /// Builds an entity instance from a column→value map (constructor + field setters).
   static Object _hydrate(EntityMeta meta, Map<String, dynamic> map) {
-    final inst = meta.cm.newInstance(const Symbol(''), const []);
+    final inst = meta.ctor();
     for (final f in meta.fields) {
-      if (map.containsKey(f.name)) inst.setField(Symbol(f.name), map[f.name]);
+      if (map.containsKey(f.name)) f.set(inst, map[f.name]);
     }
-    return inst.reflectee;
+    return inst;
   }
 
   /// Prefix of a placeholder that a reader puts in the mirror before reading the database.

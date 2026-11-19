@@ -1,7 +1,4 @@
 // KontaKlientow: każde otwarcie sesji zapisuje ostatnie_logowanie (SQL bez bazy), kolumna z encji User.
-// ignore: deprecated_member_use
-import 'dart:mirrors';
-
 import 'package:ignis/ignis.dart';
 
 void check(String description, bool condition) {
@@ -10,10 +7,11 @@ void check(String description, bool condition) {
 }
 
 void main() {
+  EntityRegistry.build();
   final s = CustomerAccounts.accountSessionSql;
   check('pierwsze logowanie zakłada konto z czasem', s.contains("VALUES (@u, '', 'customer', @s, @n)"));
   check('kolejne logowanie aktualizuje tylko czas (hasło i realm nietknięte)',
       s.contains('DO UPDATE SET last_login = EXCLUDED.last_login') && !s.contains('pass_hash =') && !s.contains('realm ='));
   check('kolumna w encji users (auto-schema), domyślnie 0 = nigdy',
-      reflectClass(User).declarations.containsKey(#last_login) && User().last_login == 0);
+      EntityRegistry.byType(User).fields.any((f) => f.name == 'last_login') && User().last_login == 0);
 }

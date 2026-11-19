@@ -1,7 +1,4 @@
-// PageRegistry.scanActions: @Action z klasy bazowej strony też jest akcją strony (bez bazy).
-// ignore: deprecated_member_use
-import 'dart:mirrors';
-
+// Actions in the registry: @Action z klasy bazowej strony też jest akcją strony (bez bazy).
 import 'package:ignis/ignis.dart';
 
 void check(String description, bool condition) {
@@ -17,6 +14,7 @@ abstract class SharedBase extends PageEngine {
   bool overridden() => true;
 }
 
+@Page('/test-base-actions')
 class TestPage extends SharedBase {
   @Action('wlasna')
   bool own() => true;
@@ -27,9 +25,12 @@ class TestPage extends SharedBase {
 }
 
 void main() {
-  final a = PageRegistry.scanActions(reflectClass(TestPage));
-  check('akcja z klasy bazowej zarejestrowana', a['wspolna']?.single == #shared);
-  check('akcja własna zarejestrowana', a['wlasna']?.single == #own);
-  check('metoda nadpisana w podklasie — jedna pozycja (bez podwójnego wywołania)', a['nadpisana']?.length == 1);
+  PageRegistry.build();
+  final a = PageRegistry.match('/test-base-actions')!.actions;
+  final page = TestPage();
+  check('akcja z klasy bazowej zarejestrowana', a['wspolna']?.single(page) == true);
+  check('akcja własna zarejestrowana', a['wlasna']?.single(page) == true);
+  check('metoda nadpisana w podklasie — jedna pozycja (bez podwójnego wywołania), wersja podklasy',
+      a['nadpisana']?.length == 1 && a['nadpisana']!.single(page) == false);
   check('nic z PageEngine', a.length == 3);
 }

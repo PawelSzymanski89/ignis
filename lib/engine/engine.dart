@@ -17,9 +17,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-// ponytail: dart:mirrors is deprecated since Dart 3.14 (dart-lang/sdk#44489); drop this ignore when Ignis moves to explicit registration.
-// ignore: deprecated_member_use
-import 'dart:mirrors';
 import 'dart:typed_data';
 
 import 'ignis.dart';
@@ -164,8 +161,6 @@ class Engine {
       }
     }
   }
-
-  static final _adminPage = reflectClass(AdminPage);
 
   /// Total `Content-Length` of multiparts buffered at once (`IGNIS_UPLOAD_BUDGET_MB`, 64 MB by default);
   /// above it an upload gets 503 instead of another 16 MB in RAM.
@@ -435,7 +430,7 @@ class Engine {
           await error(HttpStatus.forbidden, 'csrf');
           return;
         }
-        if (route.classMirror.isSubclassOf(_adminPage) && await Sessions.get(cookies[Sessions.cookieName]) == null) {
+        if (route.pageMeta.adminPage && await Sessions.get(cookies[Sessions.cookieName]) == null) {
           await error(HttpStatus.forbidden, 'forbidden');
           return;
         }
@@ -810,34 +805,32 @@ static String errorDescription(int code) => switch (code) {
   /// Hydrates @Synced/@SessionSynced fields with values from Redis and returns their
   /// snapshot (to detect changes on save).
   static Future<Map<String, Object?>> _hydrateSynced(
-      PageEngine page, List<SyncedField> fields, String? token) async {
+      PageEngine page, List<SyncedMeta> fields, String? token) async {
     final snap = <String, Object?>{};
     if (fields.isEmpty) return snap;
-    final im = reflect(page);
     final cls = page.runtimeType.toString();
     for (final f in fields) {
       if (f.isSession && token == null) continue; // no session → skip session fields
       try {
         final raw = await Redis.get(f.redisKey(cls, token));
-        if (raw != null) im.setField(Symbol(f.name), _parse(raw, f.type));
+        if (raw != null) f.set(page, _parse(raw, f.type));
       } catch (e) {
         stderr.writeln('synced hydrate ${f.name}: $e'); // Redis down → default
       }
-      snap[f.name] = im.getField(Symbol(f.name)).reflectee;
+      snap[f.name] = f.get(page);
     }
     return snap;
   }
 
   /// Writes to Redis ONLY the synced fields this node actually changed
   /// (≠ hydrated) — so it does not clobber others' changes.
-  static Future<void> _persistSynced(PageEngine page, List<SyncedField> fields,
+  static Future<void> _persistSynced(PageEngine page, List<SyncedMeta> fields,
       String? token, Map<String, Object?> snap) async {
     if (fields.isEmpty) return;
-    final im = reflect(page);
     final cls = page.runtimeType.toString();
     for (final f in fields) {
       if (f.isSession && token == null) continue;
-      final cur = im.getField(Symbol(f.name)).reflectee;
+      final cur = f.get(page);
       if (cur == snap[f.name]) continue; // no change
       final key = f.redisKey(cls, token);
       try {
@@ -950,14 +943,13 @@ static String errorDescription(int code) => switch (code) {
 
   /// The page's `@Action(name)` methods in order, preceded by ONE gate [PageEngine.beforeAction]
   /// (e.g. role → permission). false = the gate or the action set the response itself — no render.
-  static Future<bool> runActions(PageEngine page, String name, List<Symbol> methods) async {
+  static Future<bool> runActions(PageEngine page, String name, List<Object? Function(Object)> methods) async {
     if (!await page.beforeAction(name)) {
       page.denied = true;
       return false;
     }
-    final im = reflect(page);
-    for (final sym in methods) {
-      final r = im.invoke(sym, const []).reflectee;
+    for (final call in methods) {
+      final r = call(page);
       if ((r is Future ? await r : r) == false) return false;
     }
     return true;

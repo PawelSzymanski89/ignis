@@ -21,12 +21,12 @@ class TestPage extends PageEngine {
 
 Future<void> main() async {
   final p1 = TestPage();
-  check('bramka przepuszcza → metoda akcji wykonana, render dalej', await Engine.runActions(p1, 'wolno', [#allowedAction]) && p1.executed.join() == 'wolno');
+  check('bramka przepuszcza → metoda akcji wykonana, render dalej', await Engine.runActions(p1, 'wolno', [(p) => (p as TestPage).allowedAction()]) && p1.executed.join() == 'wolno');
   final p2 = TestPage();
   check('bramka odmawia → 403 z jej treścią, metoda akcji NIE wykonana',
-      !await Engine.runActions(p2, 'zakaz', [#forbiddenAction]) && p2.status == 403 && p2.outBuffer.toString().contains('missing_permission') && p2.executed.isEmpty);
+      !await Engine.runActions(p2, 'zakaz', [(p) => (p as TestPage).forbiddenAction()]) && p2.status == 403 && p2.outBuffer.toString().contains('missing_permission') && p2.executed.isEmpty);
   final p3 = TestPage();
-  check('domyślna bramka PageEngine przepuszcza', await PageEngineDefault().beforeAction('x') && await Engine.runActions(p3, 'wolno', [#allowedAction]));
+  check('domyślna bramka PageEngine przepuszcza', await PageEngineDefault().beforeAction('x') && await Engine.runActions(p3, 'wolno', [(p) => (p as TestPage).allowedAction()]));
 }
 
 class PageEngineDefault extends PageEngine {}
