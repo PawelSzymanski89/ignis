@@ -489,9 +489,10 @@ Redis-only session tests check `IGNIS_REDIS_HOST` instead). Engineering rules ar
 
 ## Status
 
-Version **0.2.0** — a hardening release after the first public release (0.1.0, extracted from a production
-multi-tenant panel) and 0.1.1 (configurable Content-Security-Policy). 0.2.0 has one breaking change:
-`IGNIS_TRUSTED_PROXIES` is now required (`none` = no reverse proxy). The API (`Ignis.start`, `@Page`,
+Version **0.2.1** — a hardening follow-up to 0.2.0, after the first public release (0.1.0, extracted from a
+production multi-tenant panel) and 0.1.1 (configurable Content-Security-Policy). 0.2.0 made
+`IGNIS_TRUSTED_PROXIES` required (`none` = no reverse proxy); 0.2.1 refuses `api`/`cors` routes on cookie-
+authenticated pages — see the upgrade notes in the [changelog](CHANGELOG.md). The API (`Ignis.start`, `@Page`,
 `@Entity`) may still change before 1.0. Identifiers, the database schema and the default UI language are
 English; a Polish translation of the panel ships in `i18n/pl.json`. See the [changelog](CHANGELOG.md).
 

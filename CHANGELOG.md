@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 — 2026-11-19
+
+Hardening follow-up to 0.2.0 (HARD-L.13). Details in `SECURITY.md`.
+
+### Upgrade notes
+
+- **Customers sign in again once.** Customer sessions stored by 0.2.0 carry no epoch and are rejected, and
+  panel 2FA half-sessions (password entered, code not yet) from before the upgrade count as expired.
+- **No schema migration.** `users.session_epoch` exists since 0.2.0 (`Schema.sync` already created it); it now
+  also guards customer sessions. Nodes on `IGNIS_SCHEMA=validate` start without a migration step.
+- **New `503`:** `api: true` bodies above the node budget `IGNIS_API_BODY_BUDGET_MB` (64 MB) get `503` with
+  `Retry-After`.
+- **New `StateError`:** at start-up for `@Page(api: true)` / `@Page(cors: true)` on an `AdminPage` /
+  `CustomerPage` subclass, and with `IGNIS_REQUIRE_RUNTIME_ROLE=1` when the role owns engine tables; at run
+  time for a request query issued concurrently with an elevated block (`Db.asSystem` / `Db.asPlatform`) from
+  outside it — `await` the block first.
 
 ### Security
 
