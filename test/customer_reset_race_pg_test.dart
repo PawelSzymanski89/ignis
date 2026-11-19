@@ -9,6 +9,7 @@ import 'package:ignis/engine/db.dart';
 import 'package:ignis/engine/orm.dart';
 import 'package:ignis/engine/redis.dart';
 import 'package:ignis/engine/schema.dart';
+import 'package:postgres/postgres.dart' show Sql;
 // ignore: unused_import
 import 'package:ignis/entities.dart';
 import 'pg_guard.dart';
@@ -38,6 +39,22 @@ Future<void> main() async {
         results.where((r) => r == '').length == 1 &&
             results.where((r) => r == CustomerAccounts.resetMessage).length == n - 1);
   }
+
+  // the password changes (committed) after the reset started but before the token is consumed: Redis writes are paused,
+  // so the consuming script waits; the fingerprint must be checked on what the script returned, after it
+  await Redis.cmd(['EVAL', "for _,k in ipairs(redis.call('KEYS','rl:reset:*')) do redis.call('DEL',k) end", '0']);
+  final late = (await Db.inContext(1, () => CustomerAccounts.resetToken(1, email)))!;
+  final other = Db.hashPassword('Haslo-zmienione-1');
+  await Process.run('redis-cli', ['-p', Platform.environment['IGNIS_REDIS_PORT'] ?? '6379', 'CLIENT', 'PAUSE', '1500', 'WRITE']);
+  final pending = Db.inContext(1, () => CustomerAccounts.resetPassword(1, late, 'Haslo-spoznione-1'));
+  await Future<void>.delayed(const Duration(milliseconds: 500));
+  await Db.asSystem(() async => (await Db.connect()).execute(
+      Sql.named("UPDATE users SET pass_hash=@h WHERE username=@u"),
+      parameters: {'h': other, 'u': CustomerAccounts.accountLogin(1, email)}));
+  check('a password changed before the token was consumed rejects the reset',
+      await pending == CustomerAccounts.resetMessage);
+  check('…and the changed password stays',
+      (await Db.inContext(1, () => CustomerAccounts.loginWithPassword(1, email, 'Haslo-zmienione-1'))).$1 != null);
 
   await Redis.cmd(['EVAL', "for _,k in ipairs(redis.call('KEYS','rl:reset:*')) do redis.call('DEL',k) end", '0']);
   final token = (await Db.inContext(1, () => CustomerAccounts.resetToken(1, email)))!;

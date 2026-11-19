@@ -149,7 +149,11 @@ class CustomerAccounts {
   /// Account e-mail from a valid reset token, or null (bad, used, expired, another service, password already changed).
   static Future<String?> resetEmail(int service, String token) async {
     if (!Sessions.validToken(token)) return null;
-    final parts = _list(await Redis.get(resetKey(token)));
+    return _resetValueEmail(service, await Redis.get(resetKey(token)));
+  }
+
+  static Future<String?> _resetValueEmail(int service, String? value) async {
+    final parts = _list(value);
     if (parts == null || parts.length != 3 || parts[0] != service || parts[1] is! String || parts[2] is! String) return null;
     final h = await _accountHash(service, parts[1] as String);
     return h != null && passwordFingerprint(h) == parts[2] ? parts[1] as String : null;
@@ -159,14 +163,16 @@ class CustomerAccounts {
   /// ([resetMessage] for a bad token, or a password error from [passwordError]).
   static Future<String> resetPassword(int service, String token, String password) async {
     final b = passwordError(password);
-    final e = await resetEmail(service, token);
-    if (e == null) return resetMessage;
-    if (b != null) return b; // a mistyped password does not use the link up
+    // a mistyped password does not use the link up
+    if (b != null) return await resetEmail(service, token) == null ? resetMessage : b;
+    if (!Sessions.validToken(token)) return resetMessage;
     // GET+DEL in one script (GETDEL needs Redis 6.2): of parallel resets with this token only one gets the value.
-    // Consumed before the database write — a failed write leaves the token used, not reusable.
+    // Consumed before the database write — a failed write leaves the token used, not reusable. The fingerprint is
+    // checked on the consumed value: a password change committed before the consumption still ends the link.
     final taken = await Redis.cmd(['EVAL', "local v = redis.call('GET', KEYS[1]) redis.call('DEL', KEYS[1]) return v",
         '1', resetKey(token)]);
-    if (taken == null) return resetMessage; // a parallel reset took it first
+    final e = await _resetValueEmail(service, taken as String?);
+    if (e == null) return resetMessage;
     return await setPassword(service, e, password) ?? '';
   }
 
