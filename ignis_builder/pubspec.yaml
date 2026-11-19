@@ -9,8 +9,11 @@ repository: https://github.com/PawelSzymanski89/ignis
 environment:
   sdk: ^3.11.0
 
+# Versions follow source_gen (which pins analyzer and build); ignis is not a dependency — the builder
+# matches the annotations by library URI (package:ignis/engine/annotations.dart).
 dependencies:
   analyzer: any
   build: any
+  dart_style: any
   glob: any
   source_gen: any

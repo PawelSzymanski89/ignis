@@ -147,6 +147,7 @@ class IgnisRegistry {
       );
 }
 
-/// Helper to capture a (possibly nullable) type literal as a non-null [Type],
-/// matching mirrors' `reflectedType` (which erased nullability). Generated code uses it.
-Type ignisTypeOf<T>() => T;
+/// The non-null static type of a field, from a getter closure: `ignisFieldType((User o) => o.id)` is `int` for
+/// `int? id`. Generated code uses it so it never has to spell (and import) type names; nullability is erased
+/// like in mirrors' `reflectedType`.
+Type ignisFieldType<C, V>(V? Function(C) getter) => V;
