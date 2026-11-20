@@ -20,7 +20,7 @@ import 'pages/logout_page.dart' as i10;
 import 'pages/permissions_page.dart' as i11;
 import 'pages/settings_page.dart' as i12;
 
-/// Pass to `Ignis.start(registry: ignisRegistry)` — pages and entities, no reflection.
+/// Pass to `Ignis.start(registry: ignisRegistry)` — pages and entities as plain code.
 final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
   entities: [
     ig.EntityMeta(
@@ -1439,6 +1439,6 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       'lib/pages/settings_page.dart',
       'lib/src/builder/registry_builder.dart',
     ],
-    sum: '05773d58b823a914d0e33186da0760db904bbf3fa07cf142e165e0211e88aef2',
+    sum: '985c58747fe4b70af28861ca102b20cb073f2d37e190a3686e8ee689ed0bc106',
   ),
 );

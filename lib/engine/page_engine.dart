@@ -397,9 +397,9 @@ abstract class PageEngine {
   /// 5. After render — logs/audit/side effects. Does not fire on a short-circuit.
   FutureOr<void> doAfterProcess() {}
 
-  // --- Entity API (reflection ODM; delegates to Orm) ------------------------
+  // --- Entity API (registry-driven ODM; delegates to Orm) ------------------------
 
-  /// Saves an entity (INSERT/UPDATE) under a per-entity lock; @Cached → mirror in Redis.
+  /// Saves an entity (INSERT/UPDATE) under a per-entity lock; @Cached → copy in Redis.
   Future<void> saveEntity(Object entity) => Orm.save(entity);
 
   /// Reads one entity of type T by id (from the cache when @Cached, otherwise from the database).

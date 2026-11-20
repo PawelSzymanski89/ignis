@@ -7,7 +7,7 @@
 //
 //  - saving under a PER-ENTITY LOCK (Redis lock:<Type>:<id>) — no race between nodes;
 //    unlock after the database write,
-//  - @Cached → entity mirror in Redis (every node sees the same; read-through; a write invalidates it),
+//  - @Cached → entity copy in Redis (every node sees the same; read-through; a write invalidates it),
 //  - SQL always parameterized (SQL injection closed at the source).
 // ============================================================================
 
@@ -35,7 +35,7 @@ class EntityRegistry {
     final source = registry;
     _byName.clear();
     for (final meta in source.entities) {
-      // the `entity:<Type>:<id>` mirror does not know the service, and Orm.read from the mirror bypasses RLS —
+      // the `entity:<Type>:<id>` copy does not know the service, and Orm.read from the copy bypasses RLS —
       // service A would read service B's row by id alone (SEC-A-5); any table under RLS, not only with `service`
       if (meta.cached && Schema.rlsScoped(meta)) {
         throw StateError('@Cached on an RLS-scoped entity (${meta.typeName}, table ${meta.table}) would bypass service isolation');
@@ -117,7 +117,7 @@ class Orm {
     return r.affectedRows > 0;
   }
 
-  /// Deletes an entity of type T by primary key (and its mirror when @Cached).
+  /// Deletes an entity of type T by primary key (and its Redis copy when @Cached).
   static Future<void> delete<T>(Object id) async {
     final meta = EntityRegistry.byType(T);
     await (await Db.connect()).execute(
@@ -126,17 +126,17 @@ class Orm {
   }
 
   /// Reads one entity of type T by primary key (from the cache when @Cached, otherwise from the database).
-  /// A transaction that has written a @Cached entity reads the database and leaves the mirror alone.
+  /// A transaction that has written a @Cached entity reads the database and leaves the Redis copy alone.
   static Future<T?> read<T>(Object id) async {
     final meta = EntityRegistry.byType(T);
-    final mirrored = meta.cached && !Db.hasCachedWrites;
+    final fromRedis = meta.cached && !Db.hasCachedWrites;
     final key = 'entity:${meta.typeName}:$id';
     String? lease;
-    if (mirrored) {
+    if (fromRedis) {
       final raw = await Redis.get(key);
       if (raw != null && !raw.startsWith(_lease)) {
         try {
-          return _fromMirror(meta, raw) as T;
+          return _fromRedis(meta, raw) as T;
         } catch (_) {
           await Redis.del(key); // unreadable entry (older format, foreign write) = miss
         }
@@ -185,10 +185,10 @@ class Orm {
     return inst;
   }
 
-  /// Prefix of a placeholder that a reader puts in the mirror before reading the database.
+  /// Prefix of a placeholder that a reader puts in the Redis copy before reading the database.
   static const _lease = 'lease:';
 
-  /// A write invalidates the mirror (entity:<Type>:<id>) and never fills it: right away, so other nodes stop
+  /// A write invalidates the Redis copy (entity:<Type>:<id>) and never fills it: right away, so other nodes stop
   /// reading the old row, and again after the transaction ends (COMMIT or ROLLBACK), so a reader that filled
   /// it from the still committed old row in between does not keep it.
   static Future<void> _invalidate(EntityMeta meta, Object id) async {
@@ -198,7 +198,7 @@ class Orm {
     await Db.afterTransaction(() => Redis.del(key));
   }
 
-  /// Fills the mirror with a row read from the database — only if the key still holds this reader's [lease]
+  /// Fills the Redis copy with a row read from the database — only if the key still holds this reader's [lease]
   /// (no write dropped it meanwhile). ttl from @Cached (0 = no expiry).
   static Future<void> _fill(EntityMeta meta, String key, String lease, Map<String, Object?> vals) async {
     final json = jsonEncode(vals.map((k, v) => MapEntry(k, v is DateTime ? v.toUtc().toIso8601String() : v)));
@@ -215,7 +215,7 @@ class Orm {
     ]);
   }
 
-  static Object _fromMirror(EntityMeta meta, String json) {
+  static Object _fromRedis(EntityMeta meta, String json) {
     final raw = (jsonDecode(json) as Map).cast<String, dynamic>();
     for (final f in meta.fields) {
       if (raw[f.name] is String && f.type.toString().replaceAll('?', '') == 'DateTime') {

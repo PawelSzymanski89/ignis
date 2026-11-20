@@ -58,7 +58,7 @@ class DbSession {
   Future<void> _raisedChain = Future.value();
   int _raised = 0;
 
-  /// The open transaction wrote a @Cached entity — its reads bypass the Redis mirror until it ends.
+  /// The open transaction wrote a @Cached entity — its reads bypass the Redis copy until it ends.
   bool _cachedWrites = false;
 
   /// Whether queries run with an explicit context (request or system).
@@ -331,7 +331,7 @@ class Db {
     (onlyAfterCommit ? s!._afterCommit : s!._afterEnd).add(task);
   }
 
-  /// Marks the open transaction as having written a @Cached entity ([Orm]): until it ends, reads skip the mirror
+  /// Marks the open transaction as having written a @Cached entity ([Orm]): until it ends, reads skip the Redis copy
   /// (they must see the transaction's own writes) and do not fill it with uncommitted data.
   static void noteCachedWrite() => _lazy?._cachedWrites = true;
 

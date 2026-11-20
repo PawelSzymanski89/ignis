@@ -16,8 +16,10 @@ advice; each one is here because of a concrete incident.
 
 ## Hard rules
 
-- ⛔ **One generator, no reflection.** The only codegen is `ignis|registry` (`lib/builder.dart`) → `lib/ignis_registry.g.dart`
-  (commit it, regenerate with `dart run build_runner build`). No `dart:mirrors`, no other builders.
+- ⛔ **One generator.** The only codegen is `ignis|registry` (`lib/builder.dart`) → `lib/ignis_registry.g.dart`:
+  commit it, regenerate with `dart run build_runner build` (or keep `watch` running). No other builders, and
+  nothing in `package:ignis/ignis.dart` may import `analyzer` / `build` / `source_gen` — they would end up in
+  the binary. Why there is a generator at all: README, "Why no `dart:mirrors`".
 - **Every domain query filters by `service`.** The parameter is required, not defaulted —
   with a default value the code compiles and quietly shows someone else's data.
 - **Secrets only through `password`/`file` fields** in settings sections (`Section`/`Field`) —
@@ -47,8 +49,8 @@ do not need a test.
 **The menu is built from `@Page`, so the order lives in the annotation, not in the template.**
 Every item declares a `group` (section heading) and an `order` numbered in TENS
 within the group — inserting a page in the middle then needs no renumbering of its neighbours.
-Two pages with the same number were placed randomly, because the reflection order
-decided. The core uses the `System` section; the application adds its own.
+Two pages with the same number were placed in whatever order the classes happened to be
+found. The core uses the `System` section; the application adds its own.
 No group = the start section ("Panel"). A page without a `label` is outside the menu on purpose
 (it is entered from a specific place, like "My account" from the profile).
 

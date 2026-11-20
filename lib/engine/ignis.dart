@@ -11,7 +11,7 @@
 //    IGNIS_ADMIN_PASS (admin account password on first start; missing → random, printed to the console)
 //    (DB: IGNIS_DB_* — see lib/engine/db.dart)
 //  Compression: the node gzips only /assets/ static files (with ETag and 304). HTML pages go
-//  uncompressed (CSRF token next to reflected input = BREACH) — gzip for them is the proxy's decision.
+//  uncompressed (CSRF token next to echoed input = BREACH) — gzip for them is the proxy's decision.
 // ============================================================================
 
 import 'dart:io';
@@ -105,8 +105,8 @@ class Ignis {
   }
 
   /// The registry the node runs on: the Ignis core registry merged with the app's generated [app]
-  /// (`Ignis.start(registry:)`). Missing → [StateError] ([noRegistryError]): the registry is mandatory now
-  /// (no runtime reflection), the engine cannot import the app's classes by itself.
+  /// (`Ignis.start(registry:)`). Missing → [StateError] ([noRegistryError]): a library cannot import the app's
+  /// files, so the generated registry is how the app's pages and entities reach the engine.
   ///
   /// In JIT the app's [Fingerprint] is checked against the current lib/ sources, and a stale
   /// lib/ignis_registry.g.dart (a class added/changed after the last build) gives ONE warning
@@ -120,12 +120,15 @@ class Ignis {
 
   static void _warn(String line) => stdout.writeln(line);
 
-  /// Node startup. [templates] — app template directories (they win over the package).
+  /// Node startup — the same under `dart run` and in a `dart compile exe` binary.
+  ///
+  /// [registry] — required: the app's `ignisRegistry` from `lib/ignis_registry.g.dart`, written by
+  /// `dart run build_runner build` (or `watch`) with only `build_runner` in `dev_dependencies`; the core pages
+  /// and entities are merged into it. Without it the node stops with a [StateError] ([noRegistryError]) listing
+  /// those steps; a stale one gives one warning under `dart run` — see [resolveRegistry].
+  /// [templates] — app template directories (they win over the package).
   /// [appAssets] — app static directories under `/assets/`, searched before `IGNIS_ASSETS`.
   /// [extraCsp] — sources added to the base Content-Security-Policy per directive ([Engine.buildCsp]).
-  /// [registry] — the app's generated `ignisRegistry` (build_runner, `lib/ignis_registry.g.dart`); the core
-  /// pages and entities are added to it. Required: without it the node stops with [noRegistryError] (the engine
-  /// cannot discover the app's classes on its own) — see [resolveRegistry].
   static Future<void> start(
       {IgnisRegistry? registry,
       List<String> templates = const [],
@@ -338,7 +341,7 @@ final _gzipped = <String, (String, List<int>)>{};
 const _maxGzipInMemory = 1024 * 1024;
 
 /// 304 on If-None-Match, gzip for text (from memory, not on every request), otherwise raw bytes.
-/// Static files only: pages with a CSRF token and reflected input would be open to BREACH once compressed.
+/// Static files only: pages with a CSRF token and echoed input would be open to BREACH once compressed.
 Future<void> _sendFile(HttpRequest req, File f, String mime, String etag, String key) async {
   final res = req.response;
   res.headers

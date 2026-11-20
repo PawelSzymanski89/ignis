@@ -2,55 +2,57 @@
 
 ## 0.3.0 — Unreleased
 
-Pages and entities come from a registry generated at build time (the builder shipped in `ignis`, run by build_runner). `dart:mirrors`
-is **gone** from the engine, so a node runs on the Dart VM (`dart run`) and as an AOT binary (`dart compile
-exe`) the same way. `dart:mirrors` is deprecated since Dart 3.14 and "will be removed in a future release"
-(dart-lang/sdk#44489).
+Pages and entities now come from a registry generated at build time by a builder that ships in `ignis`, instead
+of a runtime scan — so a node runs under `dart run` and as one native binary (`dart compile exe`). Why:
+`dart:mirrors` is deprecated in Dart 3.14 and unavailable to AOT and Flutter — details in
+[README → Why no `dart:mirrors`](README.md#why-no-dartmirrors).
 
-### Upgrade notes
+### Breaking
 
-The registry is now **mandatory** — there is one new, one-time step (the engine can no longer discover your
-classes on its own):
+- **`Ignis.start(registry:)` is required.** Without it the node stops at start-up with a `StateError` that
+  lists the three upgrade steps below.
+- Every page and entity class must live under `lib/` (the generator reads every `lib/**.dart`; `bin/` and
+  `test/` are not scanned) and have an unnamed constructor without required parameters — the build fails
+  with file, line and class otherwise.
+- Column defaults must be constant expressions; a non-constant one gives a build warning and no column
+  default. Private classes and fields are not registered.
+- In templates `{{ obj.field }}` works on `@Page` / `@Entity` objects (generated getters) and on Maps; on any
+  other object it renders empty.
+- Minimum Dart SDK 3.11 (the generator's `analyzer` / `source_gen`).
 
-1. add `build_runner` to `dev_dependencies` (the builder ships in `ignis` itself);
-2. run `dart run build_runner build` (or keep `dart run build_runner watch` running) and commit the generated
-   `lib/ignis_registry.g.dart`;
+### Upgrading from 0.2.x
+
+1. Add `build_runner` to `dev_dependencies` — nothing else; the generator is part of `ignis`.
+2. Run `dart run build_runner build` (or keep `dart run build_runner watch` running) and commit the generated
+   `lib/ignis_registry.g.dart`.
 3. `import 'package:<your_app>/ignis_registry.g.dart';` and pass `registry: ignisRegistry` to `Ignis.start`.
 
-Without a registry the node stops at start-up with a `StateError` listing exactly these three steps.
-
-- Every page and entity class must live under `lib/` (the builder reads every `lib/**.dart`; `bin/` and `test/`
-  are not scanned) and have an unnamed constructor without required parameters (the build fails with file, line
-  and class otherwise). Column defaults must be constant expressions; a non-constant one gives a build warning
-  and no column default. Private classes and fields are not registered.
-- AOT binary: set `IGNIS_PACKAGE_ROOT` to a copy of the ignis package directory (`templates/`, `i18n/`,
-  `web/`) — a compiled binary has no package config. In templates `{{ obj.field }}` works on `@Page`/`@Entity`
-  objects (generated getters) and on Maps; on any other object it renders empty.
+For a compiled binary also set `IGNIS_PACKAGE_ROOT` to a copy of the ignis package directory (`templates/`,
+`i18n/`, `web/`) — a binary has no package config.
 
 ### Added
 
 - Registry builder `ignis|registry` (`package:ignis/builder.dart`, `build.yaml` in the package root): an
-  aggregating builder, `auto_apply: dependents`, `build_to: source` — writes `lib/ignis_registry.g.dart` with `ignisRegistry` (entities, fields with
-  getter/setter closures and const defaults, pages, `@Action` methods, synced fields, per-class template
-  getters, and a source fingerprint). Deterministic output; no `build.yaml` or stub file in the app. The core's
-  own registry ships generated in the `ignis` package (a `targets` entry in `build.yaml`). The separate
-  `ignis_builder` package of the 0.3.0 pre-releases was merged into ignis — drop it from `dev_dependencies`;
-  `analyzer`, `build` and `source_gen` are now dependencies of `ignis`, imported only by the builder (not by
-  `package:ignis/ignis.dart`, so not in the AOT binary).
+  aggregating builder, `auto_apply: dependents`, `build_to: source` — writes `lib/ignis_registry.g.dart` with
+  `ignisRegistry` (entities, fields with getter/setter closures and const defaults, pages, `@Action` methods,
+  synced fields, per-class template getters, and a source fingerprint). Deterministic output; no `build.yaml`
+  or stub file in the app. The core's own registry ships generated in the `ignis` package (a `targets` entry
+  in `build.yaml`). `analyzer`, `build` and `source_gen` are dependencies of `ignis`, imported only by the
+  builder — not by `package:ignis/ignis.dart`, so not in the binary.
+- The separate `ignis_builder` package of the 0.3.0 pre-releases was merged into ignis — drop it from
+  `dev_dependencies`.
 - `Ignis.start(registry:)` and `Ignis.resolveRegistry`; metadata types `IgnisRegistry`, `EntityMeta`,
   `FieldMeta`, `PageMeta`, `SyncedMeta`, `Fingerprint`.
-- Template `{{ obj.field }}` on `@Page`/`@Entity` objects is served by generated getters (`IgnisRegistry.
-  attributes`) in JIT and AOT alike.
-- Staleness check without reflection: the registry carries a `Fingerprint` (sha256 of the sorted `lib/**.dart`
-  sources). In JIT, when the sources are on disk, Ignis recomputes it and on a mismatch prints ONE warning
-  (`dart run build_runner build` / `watch`) before running on the registry as generated. AOT has no sources and
-  skips the check.
+- Stale-registry warning: the registry carries a `Fingerprint` (sha256 of the sorted `lib/**.dart` sources).
+  Under `dart run`, when the sources are on disk, Ignis recomputes it and on a mismatch prints ONE warning
+  (`dart run build_runner build` / `watch`) before running on the registry as generated. A binary has no
+  sources and skips the check.
 - `IGNIS_PACKAGE_ROOT` (AOT), `tool/aot_smoke.sh` (compiled binary vs `dart run`: health, sign-in, panel
   pages, CRUD round-trip, identical HTML).
 
 ### Removed
 
-- `dart:mirrors` entirely: the mirrors scan (`lib/engine/mirrors_scan.dart`), the mirrors attribute reader
+- `dart:mirrors` entirely: the runtime scan (`lib/engine/mirrors_scan.dart`), the mirrors attribute reader
   (`lib/engine/attribute_mirrors.dart`), their stubs, the JIT fallback and the `IGNIS_LEGACY_MIRRORS` switch.
 
 ### Changed

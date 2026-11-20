@@ -712,7 +712,7 @@ static String errorDescription(int code) => switch (code) {
 
   /// Preflight gate: the app says whether [origin] may call its API at all (e.g. it is on the site list
   /// of some project). Refusal = 204 without CORS headers, the browser will not send the actual request.
-  /// null = preflight reflects every Origin and the decision is made only in [PageEngine.allowOrigin] — safe
+  /// null = preflight echoes every Origin and the decision is made only in [PageEngine.allowOrigin] — safe
   /// only when every `cors: true` page calls `allowOrigin` itself and does not authenticate by cookie (see [Page.cors]).
   static Future<bool> Function(String origin, Uri uri)? preflightOrigin;
 

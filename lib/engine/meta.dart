@@ -1,8 +1,8 @@
 // ============================================================================
-//  meta.dart — mirror-free registry metadata (the shape the engine runs on)
+//  meta.dart — generated registry metadata (the shape the engine runs on)
 // ----------------------------------------------------------------------------
 //  These types hold EVERYTHING the engine needs about @Entity and @Page classes
-//  WITHOUT reflection: constructors are tear-offs (`ClassName.new`), fields are
+//  as plain code: constructors are tear-offs (`ClassName.new`), fields are
 //  getter/setter closures. Filled only by lib/ignis_registry.g.dart (the registry builder).
 //
 //  No SQL / tenant / RLS / auth / template logic lives here — only the data the
@@ -40,7 +40,7 @@ class FieldMeta {
 
 /// Entity description: table, primary key, fields, @Cached and @Entity(unique:).
 class EntityMeta {
-  /// Simple class name (e.g. `User`) — the Redis mirror / lock key uses it.
+  /// Simple class name (e.g. `User`) — the Redis cache / lock key uses it.
   final String typeName;
 
   /// URI of the declaring library (e.g. `package:ignis/entities/auth.dart`) — for start-up diagnostics.
@@ -53,7 +53,7 @@ class EntityMeta {
   final List<FieldMeta> fields;
   final bool cached;
 
-  /// Lifetime of the Redis mirror in seconds (from @Cached(ttl:)); 0 = no expiry.
+  /// Lifetime of the Redis copy in seconds (from @Cached(ttl:)); 0 = no expiry.
   final int ttl;
 
   /// UNIQUE constraints (from @Entity(unique:)) — used by auto-schema.
@@ -143,7 +143,7 @@ class IgnisRegistry {
   final List<EntityMeta> entities;
   final List<PageMeta> pages;
 
-  /// Template attribute getters per class (`{{ obj.field }}` without reflection): runtime type →
+  /// Template attribute getters per class (`{{ obj.field }}`, generated): runtime type →
   /// (public getter name → read closure). The renderer uses these in JIT and AOT alike (render.dart).
   /// Empty for hand-built registries (tests) — then `{{ obj.field }}` on such objects renders empty.
   final Map<Type, Map<String, Object? Function(Object)>> attributes;

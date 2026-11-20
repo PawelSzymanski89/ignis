@@ -5,7 +5,7 @@
 //  and the app needs no stub file: every library under lib/ is resolved, and every
 //  public @Entity / @Page class in it lands in `ignisRegistry`. The output is a plain
 //  library (not a part): it imports the scanned libraries under prefixes and builds
-//  the registry from tear-offs and closures — no reflection at runtime.
+//  the registry from tear-offs and closures — plain code at runtime.
 //
 //  Annotations are matched with TypeChecker (by declaring library), never by name.
 // ============================================================================
@@ -161,7 +161,7 @@ class _Emitter {
     }
     out
       ..writeln()
-      ..writeln('/// Pass to `Ignis.start(registry: $registryName)` — pages and entities, no reflection.')
+      ..writeln('/// Pass to `Ignis.start(registry: $registryName)` — pages and entities as plain code.')
       ..writeln('final ig.IgnisRegistry $registryName = ig.IgnisRegistry(')
       ..writeln('  entities: [');
     for (final e in entities) {
@@ -180,7 +180,7 @@ class _Emitter {
 
   /// `{{ obj.field }}` getters: runtime type → (public instance getter name → read closure). Covers every
   /// readable, non-static public property (fields and getters, from base classes too) of each registry class,
-  /// so a template can read any of them in JIT and AOT without reflection.
+  /// so a template can read any of them in JIT and AOT alike.
   String _attributes(List<_Found> classes) {
     final out = StringBuffer('  attributes: {\n');
     for (final f in classes) {

@@ -11,7 +11,7 @@
 // ============================================================================
 
 /// Declares a class as an Ignis page. The engine (registry.dart) scans all classes
-/// with this annotation via reflection and builds the route table from them.
+/// with this annotation from the generated registry (`Ignis.start(registry:)`) and builds the route table from them.
 class Page {
   /// URL path the page answers, e.g. `/`, `/login`, `/dashboard`.
   /// A `{name}` segment (e.g. `/v1/profiles/{id}`) matches one non-empty segment;
@@ -90,7 +90,7 @@ class Page {
   /// [methods], headers from `Access-Control-Request-Headers`), and the page decides whether to let a given `Origin` in
   /// ([PageEngine.allowOrigin]) — without it the browser will not hand the response to the script.
   ///
-  /// REQUIREMENT: without [Engine.preflightOrigin] the preflight reflects every Origin, so such a route must (1) call
+  /// REQUIREMENT: without [Engine.preflightOrigin] the preflight echoes every Origin, so such a route must (1) call
   /// `allowOrigin` itself before responding and (2) not authenticate by cookie — only by a token/key in a header.
   final bool cors;
 
@@ -135,7 +135,7 @@ const Synced = SyncedMarker();
 /// → gone when the session expires. Redis: `ssync:<sha256(token)>:<Class>.<field>`.
 const SessionSynced = SessionSyncedMarker();
 
-/// Domain entity — mapped to a Postgres table VIA REFLECTION (no codegen).
+/// Domain entity — mapped to a Postgres table through the generated registry (`lib/ignis_registry.g.dart`).
 /// Class fields = columns (name 1:1). Primary key: the `id` field or the one given in `pk`.
 /// e.g. `@Entity('notes') class Note { int? id; String text = ''; }`
 class Entity {
@@ -152,7 +152,7 @@ class Entity {
   const Entity(this.table, {this.pk = 'id', this.unique = const []});
 }
 
-/// Cached entity — mirrored in Redis (key `entity:<Type>:<id>`),
+/// Cached entity — copied to Redis (key `entity:<Type>:<id>`),
 /// so every node sees the same. ttl=0 → no expiry (lives as long as the system).
 class Cached {
   final int ttl;

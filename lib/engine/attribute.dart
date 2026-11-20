@@ -1,4 +1,4 @@
-// `x.y` on a value in a template, without reflection. The collection getters jinja's loop / namespace and the
+// `x.y` on a value in a template. The collection getters jinja's loop / namespace and the
 // panel templates use, then the value's own `operator []`. Object fields (`{{ page.title }}`) are read through the
 // generated attribute getters in render.dart (from the registry); anything with no getter and no `[]` throws
 // NoSuchMethodError, which jinja turns into an item lookup and then into an empty value.

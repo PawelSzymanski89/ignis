@@ -10,7 +10,7 @@
 
 [![Release](https://img.shields.io/github/v/release/PawelSzymanski89/ignis?color=ff7a18&label=release)](https://github.com/PawelSzymanski89/ignis/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Dart SDK](https://img.shields.io/badge/Dart%20SDK-%3E%3D3.6-0175C2?logo=dart&logoColor=white)](https://dart.dev)
+[![Dart SDK](https://img.shields.io/badge/Dart%20SDK-%3E%3D3.11-0175C2?logo=dart&logoColor=white)](https://dart.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-13%2B-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
 [![Redis](https://img.shields.io/badge/Redis-required-DC382D?logo=redis&logoColor=white)](https://redis.io)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
@@ -31,12 +31,14 @@
 Ignis is a Dart package for **server-rendered back-office applications**: pages and entities declared with
 annotations, Jinja templates, an `/admin` panel with accounts and permissions, and many services (tenants)
 under their own domains in a single install. It ships no domain modules — everything beyond the core is
-added by an **application** that depends on `ignis`.
+added by an **application** that depends on `ignis`. The same app runs under `dart run` and as **one
+self-contained native binary** (`dart compile exe`).
 
 ## At a glance
 
 One entity and one panel page — a table with an RLS policy, a route, a menu entry, a permission check and
-a POST action, with nothing registered by hand:
+a POST action. Drop it anywhere under `lib/` — the generator that ships in `ignis` picks it up on the next
+build:
 
 ```dart
 import 'package:ignis/ignis.dart';
@@ -82,7 +84,11 @@ Every string in the model is HTML-escaped before it reaches the template; `Html(
 - [Why Ignis](#why-ignis)
 - [Features](#features)
 - [Quick start](#quick-start)
-- [Your own application](#your-own-application)
+- [How it works](#how-it-works)
+- [Development loop](#development-loop)
+- [Deployment and AOT](#deployment-and-aot)
+- [Templates](#templates)
+- [Why no `dart:mirrors`](#why-no-dartmirrors)
 - [Caching](#-caching)
 - [Architecture](#architecture)
 - [Configuration](#configuration)
@@ -123,9 +129,9 @@ header on every HTML response** and repeated as a `<meta>` in the package layout
 
 ### 🏷️ Annotations, not glue
 
-`@Page` and `@Entity` give you routes, menu entries, permissions, tables and RLS policies. Nothing has to be
-registered by hand: the builder shipped in Ignis (build_runner) finds every annotated class under `lib/` and writes the
-registry, so the node also runs as an AOT binary (`dart compile exe`).
+`@Page` and `@Entity` give you routes, menu entries, permissions, tables and RLS policies. Nothing is
+registered by hand: the generator that ships in `ignis` finds every annotated class under `lib/` and writes a
+plain Dart registry — so the same app runs under `dart run` and as one native binary.
 
 </td>
 <td width="50%" valign="top">
@@ -150,22 +156,75 @@ second factor is built into the panel.
 | 🔑 | **Auth** | Login with TOTP second factor (RFC 6238), forced password change and rate limits; accounts, permission packages, grants and denials with a panel to manage them; front-end customer accounts (password, reset token, separate session); JWT RS256 and HMAC-signed links |
 | 🏢 | **Tenancy** | Tenant resolved from `Host` once per request; a per-request transaction with `ignis.service` set locally; sessions in Redis, so every node behind the load balancer sees the same state |
 | 📦 | **Storage** | File storage on S3/MinIO, with metadata and folders in PostgreSQL |
-| ⚡ | **Caching** | `@Cached` entity mirror in Redis shared by every node; permission cache invalidated after commit; settings cache; in-memory domain map; immutable versioned assets and ETag/304 — [details](#-caching) |
+| ⚡ | **Caching** | `@Cached` entity cache in Redis shared by every node; permission cache invalidated after commit; settings cache; in-memory domain map; immutable versioned assets and ETag/304 — [details](#-caching) |
+| 🚀 | **Deploy** | `dart run` while developing, one self-contained binary from `dart compile exe` in production; the generated registry is committed, so a deploy needs no build step |
 | 🛠️ | **Ops** | Audit log (`audit_log`) for every panel action including its outcome, logins and 2FA; `/health` health check; graceful shutdown; trusted-proxy client address; translations and time zones; console tools for emergencies |
 
 > [!NOTE]
-> Since 0.3.0 pages and entities come from a generated registry (`lib/ignis_registry.g.dart`, built by
-> the builder shipped in Ignis), so Ignis runs both on the Dart VM (`dart run`) and as an AOT binary (`dart compile exe`).
-> The registry is mandatory: Ignis does not use `dart:mirrors` at all.
+> **New in 0.3.0:** pages and entities come from a registry generated at build time
+> (`lib/ignis_registry.g.dart`). One dev dependency (`build_runner`), one command, one line in `Ignis.start` —
+> and the node compiles to a native binary. Upgrading from 0.2.x takes three steps, listed in the
+> [changelog](CHANGELOG.md); the reasons are in [Why no `dart:mirrors`](#why-no-dartmirrors).
 
 ## Quick start
 
 **Requirements:** Dart SDK ≥ 3.11, PostgreSQL ≥ 13 and Redis reachable from the node.
 
-```bash
-git clone https://github.com/PawelSzymanski89/ignis.git && cd ignis
-dart pub get
+**1. Create the app** and add Ignis. `build_runner` is the only dev dependency — the registry generator ships
+inside `ignis`:
 
+```yaml
+# pubspec.yaml
+name: my_app
+environment:
+  sdk: ^3.11.0
+dependencies:
+  ignis:
+    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.3.0}
+dev_dependencies:
+  build_runner: ^2.4.0
+```
+
+**2. Declare a page.** Save the `Note` / `NotesPage` code from [At a glance](#at-a-glance) as `lib/notes.dart`,
+and its template as `templates/notes.html`:
+
+```html
+{% extends layout %}
+{% block heading %}Notes{% endblock %}
+{% block content %}
+<ul>{% for n in notes %}<li>{{ n.text }}</li>{% endfor %}</ul>
+<form method="post">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input name="text"> <button name="triggerAction" value="add">Add</button>
+</form>
+{% endblock %}
+```
+
+**3. Generate the registry** — and commit the file it writes:
+
+```bash
+dart pub get
+dart run build_runner build      # writes lib/ignis_registry.g.dart
+```
+
+**4. Pass it to the engine** — the one line Ignis cannot write for you:
+
+```dart
+// bin/server.dart
+import 'package:ignis/ignis.dart';
+import 'package:my_app/ignis_registry.g.dart'; // generated by `dart run build_runner build`
+
+Future<void> main() => Ignis.start(
+      registry: ignisRegistry, // your pages and entities; the core ones are merged in
+      brand: 'MyApp',
+      templates: ['templates'],
+      permissions: [('notes.view', 'View notes'), ('notes.edit', 'Edit notes')],
+    );
+```
+
+**5. Start it:**
+
+```bash
 createdb ignis                     # an empty database; tables appear on first start
 
 # every secret generated, the file readable only by you (it holds the database password and the key)
@@ -194,7 +253,11 @@ Then:
    it as a secure context, so the `__Host-` cookies work without TLS.
 3. Log in as `admin` with the `IGNIS_ADMIN_PASS` from `.env`. The panel will require a new password straight
    away. Without `IGNIS_ADMIN_PASS`, a random password is printed once to the console; a supplied one is
-   never printed.
+   never printed. **Notes** is in the menu under *Content*.
+
+> [!TIP]
+> Just want to look at the panel first? The repository itself is a runnable node with the core pages:
+> `git clone https://github.com/PawelSzymanski89/ignis.git && cd ignis && dart pub get`, then step 5.
 
 > [!IMPORTANT]
 > The repository ships templates, the engine's own scripts (`/assets/ignis/`) and brand files, but **not** the
@@ -206,27 +269,9 @@ Session cookies are `__Host-`-prefixed and `Secure`, so outside `localhost` brow
 HTTPS. Put the node behind a TLS reverse proxy (see
 [SECURITY.md](SECURITY.md#sample-reverse-proxy-configuration)).
 
-## Your own application
-
-```yaml
-# pubspec.yaml of your app
-dependencies:
-  ignis:
-    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.3.0}
-dev_dependencies:
-  build_runner: ^2.4.0      # the only dev dependency — the registry builder ships in ignis
-```
-
-```bash
-dart run build_runner build   # writes lib/ignis_registry.g.dart — commit it
-dart run build_runner watch   # during development: rebuilds after every save
-```
+Everything else `Ignis.start` takes:
 
 ```dart
-// bin/server.dart of your app
-import 'package:ignis/ignis.dart';
-import 'package:my_app/ignis_registry.g.dart';   // generated: every @Page / @Entity under lib/
-
 Future<void> main() => Ignis.start(
       registry: ignisRegistry,          // core pages and entities are added to it
       brand: 'MyApp',
@@ -242,33 +287,117 @@ Future<void> main() => Ignis.start(
     );
 ```
 
-- **Pages** extend `PageEngine` / `AdminPage` and carry `@Page(route, template:, requires:, label:,
-  group:, order:)`. `@Page(api: true)` is a JSON route without CSRF, so it must not
-  authenticate by cookie: on an `AdminPage` / `CustomerPage` subclass it stops the node at start-up. `@Page(methods: ['POST'])` returns 405
-  for other methods. `@Page(maxBody:)` is the only way a route accepts multipart.
-- **Entities** use `@Entity('table', pk:, unique:)`. Tables and columns are created at start-up, but columns
-  are never dropped and their types are never changed.
-- **Registry.** The builder `ignis|registry` (applied automatically to every package that depends on ignis —
-  no `build.yaml`, no stub file) reads **every `.dart` file under `lib/`**: a new page or entity is picked up by the next build,
-  no import or barrel needed. Classes under `bin/` or `test/` are not scanned — keep them in `lib/`. Private
-  classes and private fields are not registered.
-- **`registry: ignisRegistry` is the one required line.** Without it the node stops at start-up with a
-  `StateError` listing the steps (dev_dependencies, `dart run build_runner build`, the `registry:` line). A
-  Dart library cannot import your app's files by itself, so this line is how the registry reaches Ignis.
-- During development `dart run build_runner watch` is enough — it rebuilds the registry after every save. The
-  registry carries a fingerprint of your `lib/**.dart`; in JIT (`dart run`) a registry that is out of date (any
-  file under `lib/` added, removed or edited since the last build) gives ONE warning with the build / watch
-  commands, and the node runs on the registry as generated. An AOT binary has no sources and skips the check.
-- Every page and entity needs an **unnamed constructor without required parameters** (the build fails with
-  file, line and class otherwise). Column **defaults must be constant** (`String status = 'new';`): a
-  non-constant initializer gives a build warning and no column default.
-- **AOT:** `dart compile exe bin/server.dart -o server`. The binary has no package config, so set
-  `IGNIS_PACKAGE_ROOT` to a copy of the ignis package directory (its `templates/`, `i18n/`, `web/`); your own
-  `templates` / `appAssets` paths resolve against the working directory as before.
-- **Templates:** `{{ obj.field }}` works on Maps and on `@Page` / `@Entity` objects (getters generated into the
-  registry), in JIT and AOT alike. On any other object it renders empty — pass a Map (`{'name': p.name}`).
-  `tool/aot_smoke.sh` compiles `bin/server.dart` and checks the binary against `dart run`.
-- Templates and static files are overridden by a file with the same name in your directories.
+## How it works
+
+```mermaid
+flowchart LR
+    A["@Entity · @Page · @Action · @Cached<br/>anywhere under lib/"] -->|dart run build_runner build| G[generator<br/>ships in ignis]
+    G --> R["lib/ignis_registry.g.dart<br/>committed"]
+    R -->|"Ignis.start(registry: ignisRegistry)"| E[engine<br/>routes · tables · RLS · menu]
+```
+
+1. **Annotations.** `@Entity('table', pk:, unique:)` maps a class to a table; `@Cached` adds a shared Redis
+   copy; `@Page(route, template:, requires:, label:, group:, order:)` makes a route and a menu entry;
+   `@Action('name')` marks a method called on POST with `triggerAction=name`.
+2. **Generator.** `ignis` carries a build_runner builder (`ignis|registry`) that applies itself to every
+   package depending on `ignis` — no `build.yaml`, no stub file in your app. It reads **every `.dart` file under
+   `lib/`**, so a new page or entity needs no import or barrel; `bin/` and `test/` are not scanned.
+3. **Registry.** The output, `lib/ignis_registry.g.dart`, is ordinary Dart: constructor tear-offs, getter and
+   setter closures per field, `@Action` calls, constant column defaults and per-class template getters.
+   Commit it — `dart run` and `dart compile exe` need nothing else.
+4. **Engine.** `Ignis.start(registry: ignisRegistry)` merges your registry with the core one and builds routes,
+   the menu, tables, columns and RLS policies from it at start-up. Tables and columns are created, but columns
+   are never dropped and their types are never changed.
+
+The generator stops the build with file, line and class when:
+
+- a page or entity has no **unnamed constructor without required parameters** (the engine calls it);
+- a `@Page` class does not extend `PageEngine` (or `AdminPage` / `CustomerPage`), an `@Action` method is
+  private or takes required parameters, or two entities share a class name.
+
+It warns (and the build goes on) when a column **default is not constant** — `String status = 'new';` is
+fine, a computed one gets no column default — and when a class or field is private (it is skipped).
+
+`@Page(api: true)` is a JSON route without CSRF, so it must not authenticate by cookie: on an `AdminPage` /
+`CustomerPage` subclass it stops the node at start-up. `@Page(methods: ['POST'])` returns 405 for other methods.
+`@Page(maxBody:)` is the only way a route accepts multipart.
+
+**Guard rails at start-up:**
+
+- **No registry → no start.** Without `registry:` the node stops with a `StateError` that lists the three
+  steps: `build_runner` in `dev_dependencies`, `dart run build_runner build` (or `watch`), and the
+  `registry: ignisRegistry` line.
+- **Stale registry → one warning, the start goes on.** The registry carries a fingerprint: a sha256 over the
+  sorted paths and contents of every `lib/**.dart` (except the generated file). Under `dart run` Ignis
+  recomputes it from the sources on disk; if anything under `lib/` was added, removed or edited since the
+  last build, it prints **one** warning with the build / watch commands and runs on the registry as
+  generated. An AOT binary has no sources, so it skips the check.
+
+## Development loop
+
+```bash
+dart run build_runner watch      # leave it running: the registry is rebuilt after every save
+dart run bin/server.dart         # restart the node to pick up changes
+```
+
+Forgot `watch`? The stale-registry warning at start-up says so, with the command to run.
+
+## Deployment and AOT
+
+```bash
+dart compile exe bin/server.dart -o server
+```
+
+- The registry is committed, so the build machine and CI need **no code generation** — `dart pub get` and
+  `dart compile exe` are enough. To fail CI when someone forgot to regenerate:
+
+  ```bash
+  dart run build_runner build && git diff --exit-code -- lib/ignis_registry.g.dart
+  ```
+
+- The generator's dependencies (`analyzer`, `build`, `source_gen`) are build-time only:
+  `package:ignis/ignis.dart` never imports them, so they are not in the binary.
+- A compiled binary has no package config, so set `IGNIS_PACKAGE_ROOT` to a copy of the ignis package
+  directory (its `templates/`, `i18n/`, `web/`). Your own `templates` / `appAssets` paths resolve against the
+  working directory as before.
+- `tool/aot_smoke.sh` compiles `bin/server.dart` and checks the binary against `dart run` on a fresh
+  database: `/health`, sign-in, panel pages, a CRUD round-trip, identical HTML.
+
+## Templates
+
+- `{{ obj.field }}` on a `@Page` or `@Entity` object is served by the **getters generated into the registry**
+  (every public field and getter, base classes included) — the same under `dart run` and in the binary.
+- Maps work as always: `{{ m.name }}`.
+- An object outside the registry has no generated getters, so `{{ o.name }}` renders empty — pass a Map
+  (`{'name': p.name}`) instead.
+- Every string is HTML-escaped unless wrapped in `Html(...)`. A file with the same name in your
+  `templates` / `appAssets` directories overrides the package one.
+
+## Why no `dart:mirrors`
+
+Up to 0.2.x Ignis discovered pages and entities at runtime with `dart:mirrors`. 0.3.0 drops it completely:
+
+- **Deprecated.** In the Dart 3.14 SDK the library is marked `@deprecated` — its own documentation says it
+  "will be removed in a future release" — and the analyzer reports every `import 'dart:mirrors'` as
+  `deprecated_member_use`. Ignis 0.2.1 under `dart analyze --fatal-infos` on Dart 3.14 fails with five such
+  infos, which turned CI red.
+- **Pinned to JIT.** `dart compile exe` refuses the import (`Dart library 'dart:mirrors' is not available on
+  this platform`), and Flutter does not ship the library at all. A mirrors-based Ignis could only run as
+  `dart run`, with a full SDK on the server.
+- **One binary now.** Measured on this repository's own node (`bin/server.dart`, core pages only): Dart
+  3.14.1, Linux x64, Intel Core i5-10500T, local PostgreSQL 18 and Redis 8, a fresh database each run; time
+  from process start to the first `/health` 200, schema creation and seed included; three runs each.
+
+  | | Start → `/health` 200 | What you ship |
+  |---|---|---|
+  | `dart run bin/server.dart` (JIT) | 6.6–6.7 s | sources + Dart SDK + pub cache |
+  | `dart compile exe` binary (AOT) | 0.65–0.74 s | one 11.1 MB file (11,075,608 bytes) |
+
+- **The price:** `build_runner` in `dev_dependencies`, `dart run build_runner build` (or `watch`), and one
+  `registry: ignisRegistry` line. The line cannot be avoided: Dart runs no code when a library is imported,
+  so the generated file cannot register itself, and a conditional import inside `ignis` can only choose
+  between files `ignis` already has — never a file of your app. Passing the registry is how your classes
+  reach the engine.
 
 ## ⚡ Caching
 
@@ -277,7 +406,7 @@ in HTTP. All of them work with zero configuration. Each one has a clear owner an
 
 | Layer | What | Where it lives | Invalidation |
 |---|---|---|---|
-| 🪞 Entity mirror | Rows of `@Cached` entities | Redis `entity:<Type>:<id>` | Dropped on `save`/`insert`/`upsert`/`delete` (right away and after the transaction ends); refilled by the next read; optional TTL |
+| 🪞 Entity cache | Rows of `@Cached` entities | Redis `entity:<Type>:<id>` | Dropped on `save`/`insert`/`upsert`/`delete` (right away and after the transaction ends); refilled by the next read; optional TTL |
 | 🔑 Permissions | Effective permissions of an account | Redis `perm:<login>`, 15 min | `Permissions.invalidate` / `invalidateMany` after the transaction ends |
 | ⚙️ Settings | Settings of one service (secrets **encrypted**) | Redis `settings:<service>`, 60 s | Dropped after every `saveSetting` |
 | 🌐 Domain map | Host → service, name, active flag | Node memory | Re-read every `Tenants.refreshing` (30 s) or after `Tenants.refresh()` |
@@ -285,20 +414,20 @@ in HTTP. All of them work with zero configuration. Each one has a clear owner an
 | 🧾 Conditional JSON | `conditionalJson(...)` responses | Browser / client | Weak ETag of the content → 304 |
 | 🎫 Sessions *(shared state)* | Panel `sess:` and customer `csess:` sessions | Redis, keyed by `sha256(token)` | Logout, password change, TTL |
 
-### 🪞 `@Cached` entity mirror
+### 🪞 `@Cached` entity cache
 
-Put `@Cached` next to `@Entity` and the row is mirrored in Redis under `entity:<Type>:<id>`, so every node
+Put `@Cached` next to `@Entity` and the row is copied to Redis under `entity:<Type>:<id>`, so every node
 reads the same copy:
 
 - **Read-through:** `readEntity<T>(id)` / `Orm.read<T>(id)` checks Redis first. On a miss it reads the
-  database and fills the mirror — only if no write dropped the key meanwhile (the reader reserves it with
+  database and fills the copy — only if no write dropped the key meanwhile (the reader reserves it with
   `SET NX` before the query).
 - **Invalidate on write:** `saveEntity` / `Orm.save`, `Orm.insert`, `Orm.upsert` and `Orm.delete<T>(id)`
-  never write the mirror; they delete the key right away and again after the transaction ends (commit or
+  never write the copy; they delete the key right away and again after the transaction ends (commit or
   rollback). Until then the writing transaction reads the database directly (it sees its own writes) and does
-  not fill the mirror, so a rolled-back write or savepoint never reaches Redis.
+  not fill the copy, so a rolled-back write or savepoint never reaches Redis.
 - `DateTime` fields are stored in UTC. An entry that cannot be read back counts as a miss and is dropped.
-- `@Cached(ttl: 3600)` expires the mirror after an hour. `ttl: 0` (the default) means no expiry.
+- `@Cached(ttl: 3600)` expires the copy after an hour. `ttl: 0` (the default) means no expiry.
 - `readEntitys<T>()` / `Orm.readAll` and `Orm.pick` always go to the database.
 
 Use `@Cached` for global, rarely-changing data (dictionaries, platform config).
@@ -312,7 +441,7 @@ Use `@Cached` for global, rarely-changing data (dictionaries, platform config).
 
 ```dart
 @Entity('currencies', pk: 'code')
-@Cached(ttl: 3600)            // mirror lives for an hour; no `service` column — global data
+@Cached(ttl: 3600)            // Redis copy lives for an hour; no `service` column — global data
 class Currency {
   String code = '';           // app-assigned key → Orm.insert / Orm.upsert
   String name = '';
@@ -390,7 +519,7 @@ Ignis.start(
 
 ### ⚖️ Why it scales
 
-Everything that must agree across nodes — sessions, permissions, settings, entity mirrors — lives in
+Everything that must agree across nodes — sessions, permissions, settings, entity copies — lives in
 Redis. So **every node sees the same state**, and a plain round-robin load balancer works without sticky
 sessions. Every Redis call has a **2 s limit**. After an error the connection is dropped and the next call
 opens a new one, so a Redis restart does not require restarting the nodes.
@@ -505,7 +634,7 @@ resulting policy for inspection.
 
 ```bash
 dart run build_runner build   # after changing anything under lib/ (registry_parity_test checks it)
-dart analyze
+dart analyze --fatal-infos
 for t in test/*_test.dart; do dart run "$t" || echo "FAIL $t"; done
 ```
 
@@ -522,8 +651,9 @@ Redis-only session tests check `IGNIS_REDIS_HOST` instead). Engineering rules ar
 
 ## Status
 
-Version **0.3.0** (unreleased) — a generated registry instead of `dart:mirrors`, so a node also runs AOT
-(`dart compile exe`); apps need a one-time step (generate the registry, pass `registry:`) — see the changelog. Earlier: 0.2.2 kept `dart:mirrors` on Dart 3.14+, 0.2.1 was a
+Version **0.3.0** (unreleased) — pages and entities from a registry generated at build time, so a node
+also runs as a native binary; apps take a one-time step (`build_runner`, generate, pass `registry:`) — see the
+[upgrade notes](CHANGELOG.md). Earlier: 0.2.2 was a Dart 3.14 compatibility release, 0.2.1 a
 hardening follow-up to 0.2.0, after the first public release (0.1.0, extracted from a
 production multi-tenant panel) and 0.1.1 (configurable Content-Security-Policy). 0.2.0 made
 `IGNIS_TRUSTED_PROXIES` required (`none` = no reverse proxy); 0.2.1 refuses `api`/`cors` routes on cookie-
@@ -544,7 +674,8 @@ Open items already recorded in [SECURITY.md](SECURITY.md#known-gaps-and-debt) �
 
 Issues and pull requests are welcome. Before you open a PR, read [QUALITY.md](QUALITY.md) — it is short and
 every rule in it comes from a real incident. In short: the engine stays bare (domain features belong in the
-application), zero codegen, every domain query filters by `service`, `dart analyze` is clean, all tests are
+application), one generator and no other codegen, every domain query filters by `service`,
+`dart analyze --fatal-infos` is clean, all tests are
 green, and the commit message says **what and why**.
 
 ## Security
