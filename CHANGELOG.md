@@ -2,7 +2,7 @@
 
 ## 0.3.0 — Unreleased
 
-Pages and entities come from a registry generated at build time (`ignis_builder`, build_runner). `dart:mirrors`
+Pages and entities come from a registry generated at build time (the builder shipped in `ignis`, run by build_runner). `dart:mirrors`
 is **gone** from the engine, so a node runs on the Dart VM (`dart run`) and as an AOT binary (`dart compile
 exe`) the same way. `dart:mirrors` is deprecated since Dart 3.14 and "will be removed in a future release"
 (dart-lang/sdk#44489).
@@ -12,7 +12,7 @@ exe`) the same way. `dart:mirrors` is deprecated since Dart 3.14 and "will be re
 The registry is now **mandatory** — there is one new, one-time step (the engine can no longer discover your
 classes on its own):
 
-1. add `build_runner` and `ignis_builder` (`git: …, path: ignis_builder`) to `dev_dependencies`;
+1. add `build_runner` to `dev_dependencies` (the builder ships in `ignis` itself);
 2. run `dart run build_runner build` (or keep `dart run build_runner watch` running) and commit the generated
    `lib/ignis_registry.g.dart`;
 3. `import 'package:<your_app>/ignis_registry.g.dart';` and pass `registry: ignisRegistry` to `Ignis.start`.
@@ -29,11 +29,14 @@ Without a registry the node stops at start-up with a `StateError` listing exactl
 
 ### Added
 
-- `ignis_builder` package (repository subdirectory): an aggregating builder, `auto_apply: dependents`,
-  `build_to: source` — writes `lib/ignis_registry.g.dart` with `ignisRegistry` (entities, fields with
+- Registry builder `ignis|registry` (`package:ignis/builder.dart`, `build.yaml` in the package root): an
+  aggregating builder, `auto_apply: dependents`, `build_to: source` — writes `lib/ignis_registry.g.dart` with `ignisRegistry` (entities, fields with
   getter/setter closures and const defaults, pages, `@Action` methods, synced fields, per-class template
   getters, and a source fingerprint). Deterministic output; no `build.yaml` or stub file in the app. The core's
-  own registry ships generated in the `ignis` package.
+  own registry ships generated in the `ignis` package (a `targets` entry in `build.yaml`). The separate
+  `ignis_builder` package of the 0.3.0 pre-releases was merged into ignis — drop it from `dev_dependencies`;
+  `analyzer`, `build` and `source_gen` are now dependencies of `ignis`, imported only by the builder (not by
+  `package:ignis/ignis.dart`, so not in the AOT binary).
 - `Ignis.start(registry:)` and `Ignis.resolveRegistry`; metadata types `IgnisRegistry`, `EntityMeta`,
   `FieldMeta`, `PageMeta`, `SyncedMeta`, `Fingerprint`.
 - Template `{{ obj.field }}` on `@Page`/`@Entity` objects is served by generated getters (`IgnisRegistry.

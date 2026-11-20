@@ -3,7 +3,7 @@
 // ----------------------------------------------------------------------------
 //  These types hold EVERYTHING the engine needs about @Entity and @Page classes
 //  WITHOUT reflection: constructors are tear-offs (`ClassName.new`), fields are
-//  getter/setter closures. Filled only by lib/ignis_registry.g.dart (ignis_builder).
+//  getter/setter closures. Filled only by lib/ignis_registry.g.dart (the registry builder).
 //
 //  No SQL / tenant / RLS / auth / template logic lives here — only the data the
 //  registries (orm.dart EntityRegistry, registry.dart PageRegistry) consume.
@@ -32,7 +32,7 @@ class FieldMeta {
 
   /// The field initializer as a value — becomes the column DEFAULT in auto-schema.
   /// Only CONST initializers (`String realm = 'staff'`); anything else is null
-  /// (ignis_builder prints a warning).
+  /// (the registry builder prints a warning).
   final Object? defaultValue;
 
   const FieldMeta(this.name, this.type, this.get, this.set, {this.defaultValue});
@@ -138,7 +138,7 @@ class PageMeta {
   });
 }
 
-/// The whole registry: every @Entity and @Page of the generated program, produced by ignis_builder.
+/// The whole registry: every @Entity and @Page of the generated program, produced by the registry builder.
 class IgnisRegistry {
   final List<EntityMeta> entities;
   final List<PageMeta> pages;

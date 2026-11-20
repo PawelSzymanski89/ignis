@@ -1,7 +1,7 @@
 // ============================================================================
 //  registry_fingerprint.dart — is the generated registry still current?
 // ----------------------------------------------------------------------------
-//  ignis_builder stamps lib/ignis_registry.g.dart with a [Fingerprint]: the sorted package-relative paths of
+//  The registry builder stamps lib/ignis_registry.g.dart with a [Fingerprint]: the sorted package-relative paths of
 //  every lib/**.dart (except the generated file) and a sha256 over `path\n<contents>\n` of each, in that order.
 //  At JIT start-up Ignis finds the package's lib/ through the package config, lists and hashes the same files,
 //  and on a mismatch (a file added, removed or edited since the last build) prints ONE warning with
@@ -22,7 +22,7 @@ import 'registry.dart' show buildCommand, watchCommand;
 const generatedRegistryPath = 'lib/ignis_registry.g.dart';
 
 /// sha256 over [sources] (package-relative paths, already sorted), each as `path\n<utf-8 contents>\n`.
-/// ignis_builder computes the same sum from the same files.
+/// The registry builder computes the same sum from the same files.
 String fingerprintSum(List<String> sources, String Function(String path) read) {
   final bytes = <int>[];
   for (final path in sources) {

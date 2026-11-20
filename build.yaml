@@ -1,0 +1,17 @@
+builders:
+  registry:
+    import: "package:ignis/builder.dart"
+    builder_factories: ["registryBuilder"]
+    # synthetic input lib/$lib$ → one output per package
+    build_extensions: {"lib/$lib$": ["lib/ignis_registry.g.dart"]}
+    # every package that depends on ignis gets it — the app needs only build_runner in dev_dependencies, no build.yaml
+    auto_apply: dependents
+    # written next to the code and committed: `dart run` / `dart compile exe` need no build step at deploy time
+    build_to: source
+
+# auto_apply: dependents does not cover ignis itself — its own registry (core pages/entities) is generated too
+targets:
+  $default:
+    builders:
+      ignis|registry:
+        enabled: true

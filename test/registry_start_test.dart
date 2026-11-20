@@ -36,7 +36,7 @@ void main() {
   final m = '$error';
   check('StateError', error is StateError);
   check('…with the exact steps: dev_dependencies, build / watch, registry: line',
-      m.contains('ignis_builder') &&
+      m.contains('dev_dependencies:  build_runner   (the only one') &&
           m.contains('build_runner') &&
           m.contains('dart run build_runner build') &&
           m.contains('dart run build_runner watch') &&

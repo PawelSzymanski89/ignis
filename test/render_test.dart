@@ -23,7 +23,7 @@ class Shout {
 }
 
 void main() {
-  // what ignis_builder generates for a registry class (here by hand: Obj is a test class)
+  // what the registry builder generates for a registry class (here by hand: Obj is a test class)
   Renderer.attributeGetters = {
     Obj: {'name': (o) => (o as Obj).name, 'list': (o) => (o as Obj).list, 'map': (o) => (o as Obj).map},
   };

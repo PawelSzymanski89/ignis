@@ -1,7 +1,7 @@
 // ============================================================================
 //  pages.dart — BARREL of all pages
 // ----------------------------------------------------------------------------
-//  The generated registry (ignis_builder → lib/ignis_registry.g.dart) finds every
+//  The generated registry (lib/builder.dart → lib/ignis_registry.g.dart) finds every
 //  @Page under lib/ by itself; this barrel is the public import of the core pages.
 // ============================================================================
 

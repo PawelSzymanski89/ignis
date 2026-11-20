@@ -124,7 +124,7 @@ header on every HTML response** and repeated as a `<meta>` in the package layout
 ### 🏷️ Annotations, not glue
 
 `@Page` and `@Entity` give you routes, menu entries, permissions, tables and RLS policies. Nothing has to be
-registered by hand: `ignis_builder` (build_runner) finds every annotated class under `lib/` and writes the
+registered by hand: the builder shipped in Ignis (build_runner) finds every annotated class under `lib/` and writes the
 registry, so the node also runs as an AOT binary (`dart compile exe`).
 
 </td>
@@ -155,12 +155,12 @@ second factor is built into the panel.
 
 > [!NOTE]
 > Since 0.3.0 pages and entities come from a generated registry (`lib/ignis_registry.g.dart`, built by
-> `ignis_builder`), so Ignis runs both on the Dart VM (`dart run`) and as an AOT binary (`dart compile exe`).
+> the builder shipped in Ignis), so Ignis runs both on the Dart VM (`dart run`) and as an AOT binary (`dart compile exe`).
 > The registry is mandatory: Ignis does not use `dart:mirrors` at all.
 
 ## Quick start
 
-**Requirements:** Dart SDK ≥ 3.6 (≥ 3.11 to run `ignis_builder`), PostgreSQL ≥ 13 and Redis reachable from the node.
+**Requirements:** Dart SDK ≥ 3.11, PostgreSQL ≥ 13 and Redis reachable from the node.
 
 ```bash
 git clone https://github.com/PawelSzymanski89/ignis.git && cd ignis
@@ -210,10 +210,11 @@ HTTPS. Put the node behind a TLS reverse proxy (see
 
 ```yaml
 # pubspec.yaml of your app
+dependencies:
+  ignis:
+    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.3.0}
 dev_dependencies:
-  build_runner: ^2.4.0
-  ignis_builder:
-    git: {url: https://github.com/PawelSzymanski89/ignis.git, path: ignis_builder, ref: v0.3.0}
+  build_runner: ^2.4.0      # the only dev dependency — the registry builder ships in ignis
 ```
 
 ```bash
@@ -247,8 +248,8 @@ Future<void> main() => Ignis.start(
   for other methods. `@Page(maxBody:)` is the only way a route accepts multipart.
 - **Entities** use `@Entity('table', pk:, unique:)`. Tables and columns are created at start-up, but columns
   are never dropped and their types are never changed.
-- **Registry.** `ignis_builder` (applied automatically to every package that depends on it — no `build.yaml`,
-  no stub file) reads **every `.dart` file under `lib/`**: a new page or entity is picked up by the next build,
+- **Registry.** The builder `ignis|registry` (applied automatically to every package that depends on ignis —
+  no `build.yaml`, no stub file) reads **every `.dart` file under `lib/`**: a new page or entity is picked up by the next build,
   no import or barrel needed. Classes under `bin/` or `test/` are not scanned — keep them in `lib/`. Private
   classes and private fields are not registered.
 - **`registry: ignisRegistry` is the one required line.** Without it the node stops at start-up with a

@@ -1,7 +1,7 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint
 //
-// ignis_builder: every @Entity / @Page class under lib/ of package:ignis.
+// ignis registry builder: every @Entity / @Page class under lib/ of package:ignis.
 // Regenerate after changing anything under lib/: dart run build_runner build (or watch)
 
 import 'engine/annotations.dart' as ig;
@@ -1380,6 +1380,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
   fingerprint: const ig.Fingerprint(
     package: 'ignis',
     sources: [
+      'lib/builder.dart',
       'lib/engine/admin_page.dart',
       'lib/engine/annotations.dart',
       'lib/engine/attribute.dart',
@@ -1436,7 +1437,8 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       'lib/pages/logout_page.dart',
       'lib/pages/permissions_page.dart',
       'lib/pages/settings_page.dart',
+      'lib/src/builder/registry_builder.dart',
     ],
-    sum: '0c5f00b375f9d4a6ec6f3aab11ac8857ed8380b2b510ec18ac24b4257a8ca5ee',
+    sum: '05773d58b823a914d0e33186da0760db904bbf3fa07cf142e165e0211e88aef2',
   ),
 );

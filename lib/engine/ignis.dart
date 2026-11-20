@@ -123,7 +123,7 @@ class Ignis {
   /// Node startup. [templates] — app template directories (they win over the package).
   /// [appAssets] — app static directories under `/assets/`, searched before `IGNIS_ASSETS`.
   /// [extraCsp] — sources added to the base Content-Security-Policy per directive ([Engine.buildCsp]).
-  /// [registry] — the app's generated `ignisRegistry` (ignis_builder, `lib/ignis_registry.g.dart`); the core
+  /// [registry] — the app's generated `ignisRegistry` (build_runner, `lib/ignis_registry.g.dart`); the core
   /// pages and entities are added to it. Required: without it the node stops with [noRegistryError] (the engine
   /// cannot discover the app's classes on its own) — see [resolveRegistry].
   static Future<void> start(

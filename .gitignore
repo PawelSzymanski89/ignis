@@ -7,4 +7,3 @@ build/
 *.env
 # System
 .DS_Store
-ignis_builder/pubspec.lock

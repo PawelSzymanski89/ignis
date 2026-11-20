@@ -151,7 +151,7 @@ class _Emitter {
       ..writeln('// GENERATED CODE - DO NOT MODIFY BY HAND')
       ..writeln('// ignore_for_file: type=lint')
       ..writeln('//')
-      ..writeln('// ignis_builder: every @Entity / @Page class under lib/ of package:$package.')
+      ..writeln('// ignis registry builder: every @Entity / @Page class under lib/ of package:$package.')
       ..writeln('// Regenerate after changing anything under lib/: dart run build_runner build (or watch)')
       ..writeln()
       ..writeln("import '${importUri('package:ignis/engine/annotations.dart')}' as ig;")
@@ -353,7 +353,7 @@ class _Emitter {
 }
 
 String _literal(DartObject value) =>
-    _literalOrNull(value) ?? (throw UnsupportedError('ignis_builder: unsupported constant $value'));
+    _literalOrNull(value) ?? (throw UnsupportedError('ignis registry builder: unsupported constant $value'));
 
 /// Dart source of a constant: null, String, bool, int, double or a list of those (nested).
 String? _literalOrNull(DartObject value) {
