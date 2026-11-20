@@ -10,39 +10,38 @@ repository: https://github.com/PawelSzymanski89/ignis
 homepage: https://github.com/PawelSzymanski89/ignis
 
 environment:
-  # Rejestr stron/encji generuje builder pakietu (lib/builder.dart, build_runner) — działa w JIT i AOT.
-  # ^3.11: builder (analyzer/source_gen) jest teraz częścią pakietu.
+  # ^3.11: the registry builder (lib/builder.dart; analyzer, source_gen) is part of the package.
   sdk: ^3.11.0
 
 dependencies:
-  # Silnik szablonów — Jinja: {% extends %}/{% block %}/{% macro %}. Bez autoescape — escapuje Renderer (engine/render.dart).
-  # Mustache odrzucony: brak dziedziczenia szablonów, a powłoka panelu musi siedzieć
-  # w JEDNYM layoucie. 0.6.7, bo 0.7 wymaga Dart >=3.12.
+  # Templates: Jinja ({% extends %}/{% block %}/{% macro %}), no autoescape — Renderer escapes (engine/render.dart).
+  # Not Mustache: no template inheritance, and the panel shell must live in ONE layout.
+  # 0.6.x because 0.7 requires Dart >= 3.12.
   jinja: ^0.6.7
-  # Sterownik Postgresa (relacyjna baza — login sprawdza usera w tabeli users).
+  # PostgreSQL driver.
   postgres: ^3.0.0
-  # bcrypt — WOLNY, solony hash haseł (anty-brute-force). Pure Dart, bez codegenu.
+  # Password hashing: slow, salted bcrypt (brute-force resistant). Pure Dart.
   bcrypt: ^1.1.3
-  # crypto: sha256 do tokenów/pomocniczo (nie do haseł).
+  # sha256 for tokens and fingerprints (not for passwords).
   crypto: ^3.0.0
-  # Klient MinIO/S3 — magazyn plików CMS-a.
+  # MinIO/S3 client — file storage.
   minio: ^3.5.8
-  # Parser multipart/form-data (upload plików). Pakiet zespołu Darta, bez codegenu.
+  # multipart/form-data parser (file uploads). Dart team package.
   mime: ^2.0.0
-  # Strefy IANA (harmonogramy w strefie projektu / odbiorcy) — baza tzdata w pakiecie, pure Dart.
+  # IANA time zones (schedules in a project's / recipient's zone) — tzdata bundled, pure Dart.
   timezone: ^0.10.1
-  # Klient Redis — sesje wspólne dla wszystkich instancji.
+  # Redis client — sessions and caches shared by every node.
   redis: ^4.0.0
-  # AES-GCM dla sekretów w tabeli settings (engine/crypto.dart). Już był w drzewie
-  # zależności (minio), tu jawnie, bo używamy go bezpośrednio.
+  # AES-GCM for secrets in the settings table (engine/crypto.dart). Already pulled in by minio;
+  # listed because it is used directly.
   pointycastle: ^4.0.0
-  # Builder rejestru (package:ignis/builder.dart, build.yaml) — tylko czas budowania; runtime
-  # (package:ignis/ignis.dart) ich nie importuje, więc nie trafiają do binarki AOT.
-  analyzer: any
-  build: any
-  dart_style: any
-  glob: any
-  source_gen: any
+  # Registry builder (package:ignis/builder.dart, build.yaml) — build time only: package:ignis/ignis.dart
+  # does not import them, so they are not in the AOT binary.
+  analyzer: ^14.7.0
+  build: ^5.0.0
+  dart_style: ^3.1.14
+  glob: ^2.2.0
+  source_gen: ^4.3.1
 
 dev_dependencies:
   # Runs the package's own builder (build.yaml) → lib/ignis_registry.g.dart — build time only.
