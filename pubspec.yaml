@@ -23,7 +23,7 @@ dependencies:
   # Password hashing: slow, salted bcrypt (brute-force resistant). Pure Dart.
   bcrypt: ^1.1.3
   # sha256 for tokens and fingerprints (not for passwords).
-  crypto: ^3.0.0
+  crypto: ^3.0.8
   # MinIO/S3 client — file storage.
   minio: ^3.5.8
   # multipart/form-data parser (file uploads). Dart team package.
