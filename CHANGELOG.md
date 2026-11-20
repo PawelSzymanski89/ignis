@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 — Unreleased
+## 0.3.0 — 2026-11-20
 
 Pages and entities now come from a registry generated at build time by a builder that ships in `ignis`, instead
 of a runtime scan — so a node runs under `dart run` and as one native binary (`dart compile exe`). Why:
@@ -39,7 +39,7 @@ For a compiled binary also set `IGNIS_PACKAGE_ROOT` to a copy of the ignis packa
   or stub file in the app. The core's own registry ships generated in the `ignis` package (a `targets` entry
   in `build.yaml`). `analyzer`, `build` and `source_gen` are dependencies of `ignis`, imported only by the
   builder — not by `package:ignis/ignis.dart`, so not in the binary.
-- The separate `ignis_builder` package of the 0.3.0 pre-releases was merged into ignis — drop it from
+- The separate `ignis_builder` package (0.3.0 development builds only) was merged into ignis — drop it from
   `dev_dependencies`.
 - `Ignis.start(registry:)` and `Ignis.resolveRegistry`; metadata types `IgnisRegistry`, `EntityMeta`,
   `FieldMeta`, `PageMeta`, `SyncedMeta`, `Fingerprint`.

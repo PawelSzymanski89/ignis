@@ -651,7 +651,7 @@ Redis-only session tests check `IGNIS_REDIS_HOST` instead). Engineering rules ar
 
 ## Status
 
-Version **0.3.0** (unreleased) — pages and entities from a registry generated at build time, so a node
+Version **0.3.0** — pages and entities from a registry generated at build time, so a node
 also runs as a native binary; apps take a one-time step (`build_runner`, generate, pass `registry:`) — see the
 [upgrade notes](CHANGELOG.md). Earlier: 0.2.2 was a Dart 3.14 compatibility release, 0.2.1 a
 hardening follow-up to 0.2.0, after the first public release (0.1.0, extracted from a
