@@ -99,15 +99,13 @@ Future<void> main() async {
   final (_, s3) = await post({'step2': half3, 'code': Totp.code(secret, now: DateTime.now().add(const Duration(seconds: 30)))!});
   check('a fresh half-session with the right code still signs in', await valid(s3));
 
-  // (c) rolling restart: a half-session written by a 0.2.0 node holds just the login; the epoch comes from the database
+  // (c) SEC-040.4: a non-JSON value (the 0.2.0 plain-login format) is neither a half-session nor a session
   await clearLimits();
   const old = '0123456789abcdef0123456789abcdef0123456789abcdef';
   await Redis.setEx('2fa:${Sessions.hashToken(old)}', withCode, 300);
-  final current = (await Db.asSystem(() => Db.account(withCode)))!.$4;
-  check('a 0.2.0 half-session (plain login) is accepted with the epoch from the database',
-      await Db.asSystem(() => Sessions.awaiting(old)) == (withCode, current));
-  final (_, s4) = await post({'step2': old, 'code': Totp.code(secret, now: DateTime.now().add(const Duration(seconds: 30)))!});
-  check('…and the right code signs in', await valid(s4));
+  await Redis.setEx('sess:${Sessions.hashToken(old)}', withCode, 300);
+  check('a non-JSON half-session is refused', await Sessions.awaiting(old) == null);
+  check('a non-JSON session is no session', await Sessions.get(old) == null);
 
   client.close(force: true);
   await server.close(force: true);

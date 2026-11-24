@@ -10,6 +10,7 @@
 // ============================================================================
 
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart' show sha256;
@@ -52,7 +53,9 @@ class Sessions {
     try {
       await Redis.sadd('sessuser:$username', hashToken(token));
       await Redis.expire('sessuser:$username', _ttl);
-    } catch (_) {/* the set is auxiliary — the session works anyway */}
+    } catch (e) {
+      stderr.writeln('Ignis: session index update failed: $e'); // the set is auxiliary — the session works anyway
+    }
     return token;
   }
 
@@ -96,8 +99,6 @@ class Sessions {
   static Future<(String, int)?> awaiting(String token) async {
     if (!validToken(token)) return null;
     final v = await Redis.get('2fa:${hashToken(token)}');
-    // 0.2.0 stored just the login (never starts with '[') — rolling restart; the epoch is the current one
-    if (v != null && !v.startsWith('[')) return (v, await _epoch(v));
     try {
       final l = v == null ? null : jsonDecode(v);
       return l is List && l.length == 2 && l[0] is String && l[1] is int ? (l[0] as String, l[1] as int) : null;
@@ -118,8 +119,8 @@ class Sessions {
     try {
       final v = jsonDecode(u);
       if (v is List && v.length == 2 && v[0] is String && v[1] is int) return Session(v[0] as String, v[1] as int);
-    } on FormatException {/* a session from before epochs: just the login */}
-    return Session(u);
+    } on FormatException {/* not JSON = no session */}
+    return null;
   }
 
   /// Sign-out — removes the token from Redis.
@@ -139,15 +140,18 @@ class Sessions {
     List<String> tokens;
     try {
       tokens = await Redis.smembers('sessuser:$username');
-    } catch (_) {
-      return; // Redis down → the epoch rejects old tokens anyway
+    } catch (e) {
+      stderr.writeln('Ignis: reading session tokens of $username failed: $e'); // the epoch rejects old tokens anyway
+      return;
     }
     if (tokens.isEmpty) return;
     await Db.afterTransaction(() async {
       try {
         await Redis.delMany([for (final t in tokens) 'sess:$t']);
         await Redis.cmd(['SREM', 'sessuser:$username', ...tokens]);
-      } catch (_) {/* Redis down → the epoch rejects old tokens anyway */}
+      } catch (e) {
+        stderr.writeln('Ignis: deleting session tokens of $username failed: $e'); // the epoch rejects them anyway
+      }
     });
   }
 }
