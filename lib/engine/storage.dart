@@ -362,9 +362,23 @@ class Storage {
     );
   }
 
-  /// Stream of the object content — for serving the file to a client.
-  static Future<Stream<List<int>>> read(String key) async =>
-      await client.getObject(bucket, key);
+  /// Stream of the object content — for serving the file to a client. A key outside [service]
+  /// ([allowed]) throws [StorageException].
+  static Future<Stream<List<int>>> read(String key, int service) async {
+    if (!allowed(key, service)) throw const StorageException('ignis.msg.storage.no_file', 'No such file.');
+    return await client.getObject(bucket, key);
+  }
+
+  /// Object key of service [service]: the `t<service>/` prefix must match, otherwise customer N's file
+  /// could be downloaded from any other domain (also after N is disabled — a disabled domain gets 402
+  /// earlier). Keys from before multi-domain (without a prefix) belonged to the platform, so only there.
+  static bool allowed(String key, int service) {
+    final m = _key.firstMatch(key);
+    if (m == null) return false;
+    return m[1] == null ? service == 0 : int.tryParse(m[1]!) == service;
+  }
+
+  static final _key = RegExp(r'^(?:t(\d+)/)?\d{4}/\d{2}/[0-9a-f]{32}\.[A-Za-z0-9]{1,8}$');
 
   /// All folder paths (for the "move to" list).
   static Future<List<String>> allPaths(int service) async {

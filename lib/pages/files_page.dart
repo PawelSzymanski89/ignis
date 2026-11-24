@@ -177,12 +177,10 @@ class ServeFilePage extends PageEngine {
   Future<bool> doBeforeProcess() async {
     // the key arrives as ?k=YYYY/MM/hex.ext — see the path rewrite in ignis.dart
     final key = get('k') ?? '';
-    if (!allowed(key, context.service)) {
-      return notFound(); // JSON — this is a resource route, not a page for a human
-    }
     try {
-      // a stream straight from storage to the client — a 5 MB image does not land in node RAM
-      final stream = await Storage.read(key);
+      // a stream straight from storage to the client — a 5 MB image does not land in node RAM;
+      // a key of another service throws (Storage.allowed) → 404
+      final stream = await Storage.read(key, context.service);
       status = 200;
       final type = _typeFromKey(key);
       header('Content-Type', type);
@@ -198,18 +196,6 @@ class ServeFilePage extends PageEngine {
       return notFound();
     }
   }
-
-  /// Object key served under the domain of service [service]: the `t<service>/` prefix must match,
-  /// otherwise customer N's file could be downloaded from any other domain (also after N is disabled —
-  /// a disabled domain gets 402 earlier). Keys from before multi-domain (without a prefix)
-  /// belonged to the platform, so only there.
-  static bool allowed(String key, int service) {
-    final m = _key.firstMatch(key);
-    if (m == null) return false;
-    return m[1] == null ? service == 0 : int.tryParse(m[1]!) == service;
-  }
-
-  static final _key = RegExp(r'^(?:t(\d+)/)?\d{4}/\d{2}/[0-9a-f]{32}\.[A-Za-z0-9]{1,8}$');
 
   static String _typeFromKey(String k) => switch (k.split('.').last.toLowerCase()) {
         'png' => 'image/png',
