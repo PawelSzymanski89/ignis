@@ -408,20 +408,18 @@ class Db {
       await block.chain;
       // an aborted transaction refuses set_config; the body's error is the one to report, and the transaction
       // (or the caller's savepoint, which also undoes the raised context) is rolled back anyway
+      // a failed restore keeps [_raised]: later queries of the session throw instead of running elevated
       try {
         if (value != restore) await set(restore);
+        s._raised--;
       } catch (_) {}
-      s._raised--;
       rethrow;
     }
     block.active = false;
     // nested blocks started (not awaited) in [body] restore this block's context — they end first
     await block.chain;
-    try {
-      if (value != restore) await set(restore);
-    } finally {
-      s._raised--;
-    }
+    if (value != restore) await set(restore);
+    s._raised--;
     return result;
   }
 

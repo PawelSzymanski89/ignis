@@ -191,6 +191,22 @@ Future<void> main(List<String> a) async {
   }
   check('an error in the block body is not masked (22012, not 25P02)', error is ServerException && error.code == '22012');
 
+  // SEC-040.2: the restore after a failed body fails too (aborted savepoint) — the session stays fail-closed
+  Object? afterFailedRestore;
+  await Db.inContext(1, () async {
+    await q('SELECT 1');
+    try {
+      await (await Db.connect()).runTx((_) => Db.asSystem(() => q('SELECT 1/0')));
+    } catch (_) {}
+    try {
+      afterFailedRestore = await count();
+    } catch (e) {
+      afterFailedRestore = e;
+    }
+  });
+  check('a failed context restore → later queries of the session throw ($afterFailedRestore)',
+      afterFailedRestore is StateError);
+
   // HARD-L.13.5: a plain request query running while an elevated block holds '*' (Future.wait, un-awaited)
   // gets StateError instead of every tenant's rows
   for (final variant in ['block first', 'query first', 'un-awaited']) {
