@@ -1,20 +1,32 @@
 # Ignis security
 
-This document describes the **actual state** of Ignis 0.2.2, not intentions. Every point maps to a
+This document describes the **actual state** of Ignis 0.4.0, not intentions. Every point maps to a
 file you can check. Open problems are listed under "Known gaps", not left out.
 
 > The first public release (0.1.0) included the pre-release audit fixes for areas A (tenant isolation / auth),
 > B (network edge / headers) and C/D (panel, audit log, documentation). 0.2.0 closes the findings of the
 > follow-up hardening review (elevated-block context, backpressure, render escaping, key rotation, runtime role);
 > 0.2.1 closes the next round (session epochs, cookie-authenticated API routes, `striptags`, API body budget,
-> reset-token race, CI scans).
+> reset-token race, CI scans); 0.4.0 closes the SEC-040 round (see [0.4.0](#040)).
 
 ## Supported versions
 
 | Version | Security fixes |
 |---|---|
-| latest 0.2.x | yes |
-| older | no — upgrade to the latest 0.2.x |
+| latest 0.4.x | yes |
+| older | no — upgrade to the latest 0.4.x |
+
+## 0.4.0
+
+- `api: true` routes no longer receive the session, customer-session or CSRF cookie, nor the `Cookie` header.
+- An elevated block (`Db.asSystem` / `Db.asPlatform`) whose context restore fails stays fail-closed:
+  later queries in that transaction throw instead of running with `'*'` or `'0'`.
+- `Storage.read(key, service)` refuses a key without the `t<service>/` prefix (one check, in `engine/storage.dart`).
+- Session Redis failures are logged instead of swallowed; a non-JSON session / 2FA value is no session.
+- `/assets/` sends `immutable` only when `?v=` equals the served file's digest, otherwise `no-cache` (rolling deploys).
+- Start-up warns when `IGNIS_NODE` is unset or a remote Redis has an empty `IGNIS_REDIS_PASS`.
+- `tool/runtime_role.sql` takes passwords from psql variables and stops when they are missing.
+- The CI `scan` job also runs weekly.
 
 ## Reporting a vulnerability
 
@@ -159,7 +171,7 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
 - **SQL**: parameterised queries only (`Sql.named`). Interpolated parts are literals from code (column
   names, constant conditions), never user data.
 - **XSS**: Jinja 0.6.7 has **no autoescape**, so escaping is done by `Renderer` (`engine/render.dart`)
-  — every String in the model, in nested maps and lists, and object fields read via mirrors; at output, any
+  — every String in the model, in nested maps and lists, and object fields read via the generated getters; at output, any
   other value (objects with their own `toString()`, exceptions, records), also inside a printed collection and
   in the `string` / `join` filters. `striptags` is Ignis' own: Jinja's version unescapes its result, which
   turned an escaped `<script>` from the model back into markup; ours escapes `<` `>` `"` `'` left in its result. Trusted HTML passes only as `Html(...)`.
@@ -174,6 +186,9 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
   `<script>`, `on*=` handlers or `javascript:` URLs. Uploaded objects are served with `nosniff` and
   `Content-Security-Policy: sandbox`, and non-image types with `Content-Disposition: attachment`; `/files` serves only under
   the owning service's domain.
+- **`/files` URLs are capability URLs**: the object key carries 128 random bits and the `t<service>/` prefix
+  is checked against the domain, but there is no per-user authorisation — whoever has the URL gets the file.
+  Store only content meant to be public (images and attachments of published pages) there.
 - **CSRF**: double-submit with the `__Host-ignis_csrf` cookie; a POST without a matching field is 403.
   `@Action` methods run **on POST only**, so a plain link cannot trigger an action.
 - **Body limits**: multipart is accepted **only** on routes that declare `maxBody` (others, including
