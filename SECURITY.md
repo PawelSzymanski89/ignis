@@ -361,8 +361,8 @@ These are deliberate limits of the engine API, not bugs; code built on Ignis has
   declared `@Page(api: true)` skip it; an API path prefix alone selects the JSON error format, not the exemption.
   An API route therefore must not authenticate by cookie (`SameSite=Lax` does not stop a sibling subdomain, which
   is same-site): `api: true` or `cors: true` on an `AdminPage` / `CustomerPage` subclass stops the node at
-  start-up. A plain `PageEngine` API route that reads a session cookie itself is not detected — authenticate
-  API routes by a token in a header.
+  start-up. A plain `PageEngine` API route does not receive the session, customer-session or CSRF cookie
+  (`cookie(...)` returns null) nor the raw `Cookie` header — authenticate API routes by a token in a header.
 - **Template output.** Escaping covers data in the model, not code: a function put into the model and called
   in the template returns raw text, the `~` operator and `replace` work around escaping (see [Input](#input)).
   Format values in Dart and pass strings; trusted markup goes only through `Html(...)`.

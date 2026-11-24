@@ -71,7 +71,8 @@ class Page {
   /// API route for non-browser clients (SDK, mobile apps):
   /// no CSRF, no form parsing; raw body in `PageEngine.body`
   /// (up to 2 MB on the wire, gzip up to 8 MB inflated). Errors as a bare status code.
-  /// Without CSRF it must not authenticate by cookie: on an `AdminPage`/`CustomerPage` subclass the node refuses to start.
+  /// Without CSRF it must not authenticate by cookie: on an `AdminPage`/`CustomerPage` subclass the node refuses to start,
+  /// and the page never sees the session, customer-session or CSRF cookie nor the `Cookie` header.
   final bool api;
 
   /// Allowed HTTP methods (e.g. `['POST']`); another method → 405 with an `Allow` header.

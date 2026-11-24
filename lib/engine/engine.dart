@@ -33,6 +33,7 @@ import 'i18n.dart';
 import 'render.dart';
 import 'upload.dart';
 import 'session.dart';
+import 'customer_accounts.dart';
 
 /// API request body as text. When [gzipped], inflates it while counting the
 /// size: a zip bomb stops at [limit] before it reaches memory.
@@ -376,7 +377,11 @@ class Engine {
 
       // cookies BEFORE the body: an upload without the CSRF / session cookie is rejected without reading 16 MB (FIX-3)
       final cookies = <String, String>{};
+      // API routes skip CSRF, so they never see the credentials a browser attaches on its own
       for (final c in req.cookies) {
+        if (apiRoute && (c.name == Sessions.cookieName || c.name == CustomerAccounts.cookie || c.name == csrfCookie)) {
+          continue;
+        }
         cookies[c.name] = c.value;
       }
 
@@ -525,7 +530,7 @@ class Engine {
           context: context,
           files: files,
           remoteAddress: ip,
-          headerValues: _headerMap(req.headers),
+          headerValues: _headerMap(req.headers)..removeWhere((k, _) => apiRoute && k == 'cookie'),
           query: req.uri.queryParameters,
         );
         page.body = body;
