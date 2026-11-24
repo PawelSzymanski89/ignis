@@ -321,13 +321,15 @@ Future<void> _staticFile(HttpRequest req, List<String> dirs) async {
     final mime = assetMime(relative);
     // the same digest as in ?v= — computed once per file per process, then 304 without reading the file
     final key = '${dirs.join('|')}|$relative';
-    final etag = 'W/"${assetVersions[key] ??= (await md5.bind(f.openRead()).first).toString().substring(0, 10)}"';
+    final version = assetVersions[key] ??= (await md5.bind(f.openRead()).first).toString().substring(0, 10);
+    final etag = 'W/"$version"';
     if (mime.startsWith('text/html')) res.headers.set('Content-Security-Policy', Engine.csp);
     res.headers
       ..contentType = ContentType.parse(mime)
-      // a URL with ?v=<content hash> changes together with the file — see [versionAssets]
+      // immutable only for THIS content's ?v= ([versionAssets]): in a rolling deploy an old node asked for the
+      // new version must not pin the old file under the new URL
       ..set(HttpHeaders.cacheControlHeader,
-          req.uri.queryParameters.containsKey('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
+          req.uri.queryParameters['v'] == version ? 'public, max-age=31536000, immutable' : 'no-cache');
     await _sendFile(req, f, mime, etag, key);
   } catch (_) {
     res.statusCode = HttpStatus.internalServerError;
