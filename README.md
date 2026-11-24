@@ -180,7 +180,7 @@ environment:
   sdk: ^3.11.0
 dependencies:
   ignis:
-    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.3.0}
+    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.4.0}
 dev_dependencies:
   build_runner: ^2.4.0
 ```
@@ -319,7 +319,8 @@ It warns (and the build goes on) when a column **default is not constant** — `
 fine, a computed one gets no column default — and when a class or field is private (it is skipped).
 
 `@Page(api: true)` is a JSON route without CSRF, so it must not authenticate by cookie: on an `AdminPage` /
-`CustomerPage` subclass it stops the node at start-up. `@Page(methods: ['POST'])` returns 405 for other methods.
+`CustomerPage` subclass it stops the node at start-up, and it never receives the session, customer-session or CSRF
+cookie nor the `Cookie` header. `@Page(methods: ['POST'])` returns 405 for other methods.
 `@Page(maxBody:)` is the only way a route accepts multipart.
 
 **Guard rails at start-up:**
@@ -495,7 +496,7 @@ The tenant comes from `Host`, and the node resolves it from an **in-memory map o
 
 | Response | `Cache-Control` | Revalidation |
 |---|---|---|
-| `/assets/…?v=<hash>` | `public, max-age=31536000, immutable` | — |
+| `/assets/…?v=<hash>` | `public, max-age=31536000, immutable` when `<hash>` is the served file's digest, otherwise `no-cache` | — |
 | `/assets/…` without `?v` | `no-cache` | Weak ETag → 304 |
 | `Mount(...)` file matched by `immutable` | `public, max-age=31536000, immutable` | Weak ETag → 304 |
 | Other `Mount(...)` files | `public, max-age=<maxAge>` (300 by default) | Weak ETag → 304 |
@@ -571,7 +572,7 @@ All configuration comes from environment variables read by the engine. The requi
 | `IGNIS_REDIS_PASS` | — | Redis password |
 | `IGNIS_REDIS_TLS` | — | `1` = TLS to Redis, verified against system CAs |
 | `IGNIS_PORT` | `8080` | HTTP listen port |
-| `IGNIS_NODE` | `node` | node name in logs, locks and the audit log |
+| `IGNIS_NODE` | `node` | node name in logs, locks and the audit log; must be unique per node (warning when unset) |
 | `IGNIS_REQUIRE_RUNTIME_ROLE` | unset | `1` = refuse to start (before any DDL) when the database role owns engine tables (serving nodes on a runtime role; `tool/runtime_role.sql`); any other non-empty value refuses to start |
 | `IGNIS_SCHEMA` | `update` | `update` creates tables and columns, `validate` and `none` only check. Serving nodes: `validate` on a runtime role without table ownership ([SECURITY.md](SECURITY.md#runtime-database-role)) |
 | `IGNIS_ASSETS` | `web/assets` | directory with the theme's static files (`/assets/…`) |
@@ -651,7 +652,8 @@ Redis-only session tests check `IGNIS_REDIS_HOST` instead). Engineering rules ar
 
 ## Status
 
-Version **0.3.0** — pages and entities from a registry generated at build time, so a node
+Version **0.4.0** — security hardening (`api: true` routes get no session/CSRF cookies, `Storage.read` takes the
+service; see the [changelog](CHANGELOG.md)). 0.3.0: pages and entities from a registry generated at build time, so a node
 also runs as a native binary; apps take a one-time step (`build_runner`, generate, pass `registry:`) — see the
 [upgrade notes](CHANGELOG.md). Earlier: 0.2.2 was a Dart 3.14 compatibility release, 0.2.1 a
 hardening follow-up to 0.2.0, after the first public release (0.1.0, extracted from a

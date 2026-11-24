@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0 — 2026-11-24
+
+Security hardening round SEC-040 (details in [SECURITY.md → 0.4.0](SECURITY.md#040)).
+
+### Breaking
+
+- **`api: true` routes no longer receive session/CSRF cookies or the `Cookie` header**: `cookie()` returns null
+  for `__Host-ignis_session`, `__Host-ignis_customer` and `__Host-ignis_csrf`, and `requestHeader('cookie')` is
+  null. Authenticate API routes by a token in a header.
+- **`Storage.read(key, service)` requires the service**: a key without the `t<service>/` prefix throws
+  `StorageException`. `ServeFilePage.allowed` moved to `Storage.allowed`.
+- A session or 2FA value in the 0.2.0 plain-login (non-JSON) format is no longer accepted.
+
+### Changed
+
+- An elevated block whose context restore fails leaves the transaction fail-closed (later queries throw).
+- `/assets/` sends `immutable` only when `?v=` matches the served file's digest, otherwise `no-cache`.
+- Start-up warns when `IGNIS_NODE` is unset or a remote Redis has an empty `IGNIS_REDIS_PASS`; session Redis
+  failures are logged.
+- `tool/runtime_role.sql` takes passwords from psql variables (`-v owner_pass=… -v rt_pass=…`).
+- CI also runs weekly (Monday 06:00 UTC), so the `scan` job catches new advisories.
+
 ## 0.3.0 — 2026-11-20
 
 Pages and entities now come from a registry generated at build time by a builder that ships in `ignis`, instead
