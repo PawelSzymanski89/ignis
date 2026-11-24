@@ -102,11 +102,36 @@ class Redis {
   static Future<void> expire(String key, int seconds) =>
       cmd(['EXPIRE', key, seconds.toString()]);
 
+  /// Compare-and-delete: DEL [key] only when it still holds [value]. Returns true when deleted.
+  /// For a lock whose owner must not drop a lock another node took over after the TTL expired — pass a value
+  /// unique PER RUN (not just the node name, or two runs of the same node could not tell their locks apart).
+  static Future<bool> delIfEqual(String key, String value) async =>
+      (await cmd([
+            'EVAL',
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+            '1',
+            key,
+            value,
+          ])) == 1;
+
+  /// Compare-and-expire: EXPIRE [key] only when it still holds [value] (extend one's OWN lock, never a lock
+  /// another node took over). Returns true when the TTL was set.
+  static Future<bool> expireIfEqual(String key, String value, int seconds) async =>
+      (await cmd([
+            'EVAL',
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0",
+            '1',
+            key,
+            value,
+            seconds.toString(),
+          ])) == 1;
+
   /// DEL key (e.g. sign-out).
   static Future<void> del(String key) => cmd(['DEL', key]);
 
-  /// Releases `lock:*` locks held by [node] (value == node name) — on
-  /// shutdown, so background jobs start on another node without waiting for the TTL.
+  /// Releases `lock:*` locks held by [node] — on shutdown, so background jobs start on another node without
+  /// waiting for the TTL. Matches both the value == node name (plain locks) and the value `node:<run token>`
+  /// (locks taken with a per-run token via [delIfEqual]).
   /// SCAN in batches, not KEYS — KEYS blocked Redis (and the sessions of all nodes) for the duration of the scan.
   static Future<void> releaseLocks(String node) async {
     var cursor = '0';
@@ -117,7 +142,9 @@ class Redis {
       if (keys.isEmpty) continue;
       await cmd([
         'EVAL',
-        "for _, k in ipairs(KEYS) do if redis.call('GET', k) == ARGV[1] then redis.call('DEL', k) end end",
+        "local p = ARGV[1] .. ':' "
+            "for _, k in ipairs(KEYS) do local v = redis.call('GET', k) "
+            "if v == ARGV[1] or (v and v:sub(1, #p) == p) then redis.call('DEL', k) end end",
         '${keys.length}',
         ...keys,
         node,
