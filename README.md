@@ -87,6 +87,7 @@ Every string in the model is HTML-escaped before it reaches the template; `Html(
 - [How it works](#how-it-works)
 - [Development loop](#development-loop)
 - [Deployment and AOT](#deployment-and-aot)
+- [Running a cluster](#-running-a-cluster)
 - [Templates](#templates)
 - [Why no `dart:mirrors`](#why-no-dartmirrors)
 - [Caching](#-caching)
@@ -364,6 +365,207 @@ dart compile exe bin/server.dart -o server
 - `tool/aot_smoke.sh` compiles `bin/server.dart` and checks the binary against `dart run` on a fresh
   database: `/health`, sign-in, panel pages, a CRUD round-trip, identical HTML.
 
+## 🧩 Running a cluster
+
+Several nodes behind one load balancer need no extra component — only consistent configuration.
+
+### 🧭 Topology
+
+- **N nodes**, all from the same build of the same app version (same `lib/ignis_registry.g.dart`, templates and
+  assets).
+- **One PostgreSQL, one Redis** (and optionally one S3/MinIO bucket) shared by every node.
+- **A reverse proxy** in front, terminating TLS and balancing round-robin. Sticky sessions are not needed:
+  sessions, permissions, settings and entity copies live in Redis — see *Why it scales* under
+  [Caching](#-caching).
+
+```bash
+# the same on every node — one file, distributed with the build (mode 600)
+IGNIS_KEY=…                       # one key for the whole cluster
+IGNIS_DOMAINS=example.com
+IGNIS_TRUSTED_PROXIES=10.0.0.5    # the load balancer
+IGNIS_DB_HOST=10.0.0.20
+IGNIS_DB_USER=ignis_rt            # runtime role, see "Schema with many nodes"
+IGNIS_DB_PASS=…
+IGNIS_SCHEMA=validate
+IGNIS_REQUIRE_RUNTIME_ROLE=1
+IGNIS_REDIS_HOST=10.0.0.21
+IGNIS_REDIS_PASS=…
+
+# different on every node
+IGNIS_NODE=node-a
+IGNIS_BIND=10.0.0.11              # the node's private address, reachable from the proxy
+```
+
+### 🔑 Environment per node
+
+**Must be identical:** `IGNIS_KEY`, `IGNIS_KEY_PREVIOUS`, `IGNIS_DOMAINS`, `IGNIS_DB_HOST` / `_PORT` / `_NAME` /
+`_SSL`, `IGNIS_REDIS_*`, `IGNIS_S3_*`, `IGNIS_TRUSTED_PROXIES`, `IGNIS_HSTS`, and in practice the limits
+(`IGNIS_TIMEOUT_S`, `IGNIS_MAX_INFLIGHT`, …) so that nodes behave alike. `IGNIS_DB_USER` / `IGNIS_DB_PASS` /
+`IGNIS_SCHEMA` differ only between the migrating step and the serving nodes ([below](#-schema-with-many-nodes)).
+
+**A different `IGNIS_KEY` on one node** is not detected at start-up. Sessions keep working (Redis keys are
+token digests, not keyed), but everything derived from the key breaks across nodes: encrypted settings
+secrets and TOTP seeds read as empty on the odd node (so its sign-ins with 2FA are denied, and a secret saved
+there is unreadable elsewhere), and signed flash messages from one node silently disappear on another.
+Rotating the key is the same: set the new `IGNIS_KEY` and the old one as `IGNIS_KEY_PREVIOUS` on **every**
+node, restart all of them, run `bin/rekey.dart` once, then remove `IGNIS_KEY_PREVIOUS` everywhere and restart
+again.
+
+**Must be unique:**
+
+- `IGNIS_NODE` — the node name in the start-up log, the owner value of background-job locks in Redis
+  (`lock:audit_log`), the `"node"` field of `/health` (and its `health:<node>` key) and the panel footer. It is **not** stored in the
+  audit log. On SIGTERM a node deletes the `lock:*` keys that carry its name, so two nodes with the same name
+  release each other's locks. Unset, it is `node` for locks and `unknown` in `/health` and the panel, and the
+  node warns at start-up.
+- `IGNIS_BIND` — the default `127.0.0.1` is unreachable from a proxy on another host; bind to the node's
+  private address (or `0.0.0.0` behind a firewall).
+
+Set `IGNIS_TRUSTED_PROXIES` to the load balancer's address(es) on **every** node. A wrong value makes every
+client look like the proxy — see the comment in the [Quick start](#quick-start) `.env` and
+[SECURITY.md](SECURITY.md#sample-reverse-proxy-configuration).
+
+### 🐘 PostgreSQL and Redis over the network
+
+- Listen on a private address only (`listen_addresses`, Redis `bind`), and allow only the node addresses
+  (`pg_hba.conf` entries per node, a firewall or Redis ACL in front of Redis).
+- Give Redis a password (`requirepass` / ACL user → `IGNIS_REDIS_PASS`). Without one a remote Redis is
+  warned about: `Ignis WARNING: Redis at … is outside loopback and IGNIS_REDIS_PASS is empty — anyone on the
+  network can read sessions; set a password.`
+- Every backend host outside loopback with TLS off gives
+  `Ignis WARNING: PostgreSQL at … is outside loopback and TLS is off — set IGNIS_DB_SSL=verify-full, unless the
+  network is private and trusted.` (likewise Redis → `IGNIS_REDIS_TLS=1`, S3 → `IGNIS_S3_SSL=1`). On a private
+  network that only the cluster can reach, the warning can stay. When the traffic crosses anything shared
+  (another data centre, a cloud VPC with other tenants, the internet), turn TLS on: `IGNIS_DB_SSL=verify-full`
+  (`require` encrypts without checking the certificate and is warned about too), `IGNIS_REDIS_TLS=1`.
+- The pool is per node: `N × IGNIS_DB_POOL` (16 by default) must fit in PostgreSQL's `max_connections`.
+
+### 🧱 Schema with many nodes
+
+Nodes that start at the same time do not race: schema sync and the core seed (including the first `admin`
+account) run under one PostgreSQL advisory lock. The others log
+`Ignis: waiting for start-up lock (another node is migrating or seeding)` and give up after 5 minutes. The
+app's own `seed:` callback runs **after** that lock, on every node — keep it idempotent (`ON CONFLICT DO
+NOTHING`).
+
+Recommended split ([SECURITY.md → Runtime database role](SECURITY.md#runtime-database-role)):
+
+- **Migrate** in a separate deploy step (or on one node) on the owner role with `IGNIS_SCHEMA=update`, before
+  the serving nodes get the new build.
+- **Serve** on the runtime role with `IGNIS_SCHEMA=validate` and `IGNIS_REQUIRE_RUNTIME_ROLE=1`. A serving node
+  whose tables or columns are missing exits at start-up — the order above matters.
+
+Auto-schema only **adds** tables, columns (with `NOT NULL DEFAULT` from a constant field default) and unique
+constraints, so old nodes keep working against a migrated database — that is what makes a rolling deploy
+possible. It never drops or retypes: a removed or renamed field leaves its column behind with
+`columns without a class field: … (kept — drop them by hand if unneeded)`. Drop such columns by hand, only
+after every node runs the new build.
+
+### 🔄 Rolling deploy
+
+1. Migrate (above), then replace the nodes **one at a time**.
+2. Stop a node with **SIGTERM** (or SIGINT): it stops accepting connections, waits up to **20 s** for requests
+   in flight, cuts the rest, releases its `lock:*` keys and closes the pool. Give the process manager more
+   than 20 s before it sends SIGKILL (Docker's default is 10 s).
+3. Start the new node and wait for `/health` to return 200 before moving on.
+
+`/health` returns `200` with `{"node", "healthy", "database", "redis", "storage"}`, or `503` when PostgreSQL or
+Redis does not answer within 2 s (storage is reported but does not affect the status). It answers only
+loopback and `IGNIS_TRUSTED_PROXIES` without `X-Forwarded-For`; anyone else gets 404. Because the database and
+Redis are shared, losing one of them fails every node's probe at once and the proxy drops the whole pool —
+deliberately.
+
+During the switch both builds serve traffic, so keep the registry committed and identical on every node of
+one build (`dart run build_runner build`, then the CI check from [Deployment and AOT](#deployment-and-aot)).
+Under `dart run` a stale registry is reported at start-up with
+`Ignis WARNING: lib/ignis_registry.g.dart is out of date …`; an AOT binary skips that check. Assets are safe
+across builds: a node asked for a `?v=` that is not the digest of its own copy of the file answers `no-cache`,
+not `immutable`.
+
+### 🌐 Domains and caches across nodes
+
+Everything cached in Redis is shared and invalidated once for all nodes. The exception is the **domain map**,
+held in each node's memory and re-read every 30 s (`Tenants.refreshing`). `Tenants.refresh()` affects only the
+node it runs on, so after a domain or service change the other nodes need up to 30 s: a new domain may answer
+404 there, a disabled service is still served.
+
+### 🔒 One job per cluster
+
+`Ignis.start(tasks: …)` runs on **every** node. Work that must happen once per cluster needs a Redis lock.
+The engine's own audit-log retention shows the pattern: every node runs the daily timer, but only the one
+that wins `Redis.setNxEx('lock:audit_log', <IGNIS_NODE>, 3600)` deletes old entries; the others skip that
+round. A `lock:` key carrying the node name is also released when that node shuts down.
+
+### 🚦 Proxy for several nodes
+
+Caddy passes `Host` through unchanged and sets `X-Forwarded-For` and `X-Forwarded-Proto` by default (ignoring
+the client's own values), which is all the node needs:
+
+```caddy
+admin.example.com, demo.example.com {
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	request_body {
+		max_size 16MiB
+	}
+	reverse_proxy 10.0.0.11:8080 10.0.0.12:8080 10.0.0.13:8080 {
+		lb_policy round_robin
+		lb_try_duration 5s     # retry on another node: GETs, and any request that could not connect
+		fail_duration 30s      # passive checks: a failing node is skipped for 30 s
+		health_uri /health     # active checks, sent without X-Forwarded-For
+		health_interval 10s
+		health_timeout 3s
+	}
+}
+```
+
+nginx: extend the [sample server block](SECURITY.md#sample-reverse-proxy-configuration) with an upstream.
+Open-source nginx has only passive checks, so poll `/health` from a monitor on the proxy host as well:
+
+```nginx
+upstream ignis {
+    server 10.0.0.11:8080 max_fails=1 fail_timeout=30s;
+    server 10.0.0.12:8080 max_fails=1 fail_timeout=30s;
+    server 10.0.0.13:8080 max_fails=1 fail_timeout=30s;
+}
+
+# in the server block — headers exactly as in SECURITY.md
+location / {
+    proxy_pass http://ignis;
+    proxy_next_upstream error timeout http_502 http_503;   # a POST is retried only if it never reached a node
+    proxy_set_header Host              $host;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Send HSTS from the proxy (as above) or set `IGNIS_HSTS=1` on every node.
+
+### ✅ Before adding a node
+
+- [ ] Same build as the rest: the same commit, `lib/ignis_registry.g.dart`, templates and assets.
+- [ ] The shared env file is byte-identical (`sha256sum` it on every node) — above all `IGNIS_KEY`.
+- [ ] A unique `IGNIS_NODE`, and `IGNIS_BIND` set to the node's private address.
+- [ ] The node's address allowed in `pg_hba.conf` and the Redis firewall/ACL; the pool still fits in
+      `max_connections`.
+- [ ] Serving on the runtime role with `IGNIS_SCHEMA=validate` and `IGNIS_REQUIRE_RUNTIME_ROLE=1`.
+- [ ] Graceful stop: SIGTERM with more than 20 s before SIGKILL.
+- [ ] Added to the proxy upstreams only after its `/health` returns 200.
+
+**Check the cluster:**
+
+- From the proxy host (an `IGNIS_TRUSTED_PROXIES` address), `curl -s http://10.0.0.11:8080/health` for each
+  node: `200`, `"healthy": true` and that node's own `"node"`. From anywhere else the probe answers 404.
+- Sign in through the proxy and reload the page a few times (a full reload): the node name in the panel footer
+  changes (round-robin) while you stay signed in — the session from node A is valid on node B.
+
+### 🍎 Packaging from macOS: no `._*` files
+
+An archive made on macOS can carry AppleDouble files (`lib/._notes.dart` next to `lib/notes.dart`). Under
+`dart run` the stale-registry check reads every `lib/**.dart` file as UTF-8, so such a file stops the start with
+`FileSystemException: Failed to decode data using encoding 'utf-8'` — under a restart policy, a restart loop.
+Build archives without them (`COPYFILE_DISABLE=1 tar -czf app.tgz …`) or remove them on the server
+(`find . -name '._*' -delete`). An AOT binary does not read `lib/`.
+
 ## Templates
 
 - `{{ obj.field }}` on a `@Page` or `@Entity` object is served by the **getters generated into the registry**
@@ -572,10 +774,11 @@ All configuration comes from environment variables read by the engine. The requi
 | `IGNIS_REDIS_PASS` | — | Redis password |
 | `IGNIS_REDIS_TLS` | — | `1` = TLS to Redis, verified against system CAs |
 | `IGNIS_PORT` | `8080` | HTTP listen port |
-| `IGNIS_NODE` | `node` | node name in logs, locks and the audit log; must be unique per node (warning when unset) |
+| `IGNIS_NODE` | `node` | node name in the start-up log, Redis locks, `/health` and the panel footer (`unknown` there when unset); must be unique per node (warning when unset) — see [Running a cluster](#-running-a-cluster) |
 | `IGNIS_REQUIRE_RUNTIME_ROLE` | unset | `1` = refuse to start (before any DDL) when the database role owns engine tables (serving nodes on a runtime role; `tool/runtime_role.sql`); any other non-empty value refuses to start |
 | `IGNIS_SCHEMA` | `update` | `update` creates tables and columns, `validate` and `none` only check. Serving nodes: `validate` on a runtime role without table ownership ([SECURITY.md](SECURITY.md#runtime-database-role)) |
 | `IGNIS_ASSETS` | `web/assets` | directory with the theme's static files (`/assets/…`) |
+| `IGNIS_PACKAGE_ROOT` | from the package config | directory with a copy of the ignis package (`templates/`, `i18n/`, `web/`); required for a `dart compile exe` binary, which has no package config |
 | `IGNIS_TRUSTED_PROXIES` | **required** | IPs/CIDRs whose `X-Forwarded-For` is trusted; `none` (any case) = no reverse proxy. Unset, empty, a non-address entry or a `/0` prefix stops the node |
 | `IGNIS_TIMEOUT_S` | `120` | whole-request deadline in seconds |
 | `IGNIS_SHORT_TIMEOUT_S` | `15` | deadline for routes without `maxBody` (plain forms) |

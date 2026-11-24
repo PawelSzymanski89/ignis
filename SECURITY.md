@@ -275,6 +275,9 @@ The proxy **must set `X-Forwarded-For`** on every forwarded request. `/health` a
 and `IGNIS_TRUSTED_PROXIES` *without* that header (the proxy's own probe); a proxy that forwards client
 requests without it makes the health check — with node and backend state — public.
 
+Several nodes behind one proxy (upstreams, health checks, per-node settings): [README → Running a
+cluster](README.md#-running-a-cluster).
+
 ## Accountability
 
 - **Every panel action leaves an entry** (`engine/audit_log.dart`), written centrally in `engine.dart`,
