@@ -85,24 +85,34 @@ class Ignis {
   /// Warnings for backends reached outside loopback with TLS off: credentials and data cross the network
   /// in plaintext unless the network itself is trusted.
   static List<String> backendTlsWarnings(Map<String, String> env) {
-    bool remote(String? host) {
-      if (host == null || host.isEmpty || host == 'localhost' || host.startsWith('/')) return false;
-      return !(InternetAddress.tryParse(host)?.isLoopback ?? false);
-    }
-
     String warn(String what, String host, String fix) =>
         'Ignis WARNING: $what at $host is outside loopback and TLS is off — set $fix, unless the network is private and trusted.';
     return [
-      if (remote(env['IGNIS_DB_HOST']) && (env['IGNIS_DB_SSL'] ?? 'disable') == 'disable')
+      if (_remote(env['IGNIS_DB_HOST']) && (env['IGNIS_DB_SSL'] ?? 'disable') == 'disable')
         warn('PostgreSQL', env['IGNIS_DB_HOST']!, 'IGNIS_DB_SSL=verify-full'),
-      if (remote(env['IGNIS_DB_HOST']) && env['IGNIS_DB_SSL'] == 'require')
+      if (_remote(env['IGNIS_DB_HOST']) && env['IGNIS_DB_SSL'] == 'require')
         'Ignis WARNING: PostgreSQL at ${env['IGNIS_DB_HOST']} uses IGNIS_DB_SSL=require — encrypted, but the server '
             'certificate is not verified (no protection against a man in the middle); set IGNIS_DB_SSL=verify-full.',
-      if (remote(env['IGNIS_REDIS_HOST']) && env['IGNIS_REDIS_TLS'] != '1')
+      if (_remote(env['IGNIS_REDIS_HOST']) && env['IGNIS_REDIS_TLS'] != '1')
         warn('Redis', env['IGNIS_REDIS_HOST']!, 'IGNIS_REDIS_TLS=1'),
-      if (remote(env['IGNIS_S3_HOST']) && env['IGNIS_S3_SSL'] != '1') warn('S3', env['IGNIS_S3_HOST']!, 'IGNIS_S3_SSL=1'),
+      if (_remote(env['IGNIS_S3_HOST']) && env['IGNIS_S3_SSL'] != '1') warn('S3', env['IGNIS_S3_HOST']!, 'IGNIS_S3_SSL=1'),
     ];
   }
+
+  static bool _remote(String? host) {
+    if (host == null || host.isEmpty || host == 'localhost' || host.startsWith('/')) return false;
+    return !(InternetAddress.tryParse(host)?.isLoopback ?? false);
+  }
+
+  /// Warnings for a multi-node deployment: locks are released by node name, and a remote Redis holds the sessions.
+  static List<String> nodeWarnings(Map<String, String> env) => [
+        if ((env['IGNIS_NODE'] ?? '').isEmpty)
+          'Ignis WARNING: IGNIS_NODE is not set — multi-node deployments need a unique IGNIS_NODE per node '
+              '(locks are released by node name).',
+        if (_remote(env['IGNIS_REDIS_HOST']) && (env['IGNIS_REDIS_PASS'] ?? '').isEmpty)
+          'Ignis WARNING: Redis at ${env['IGNIS_REDIS_HOST']} is outside loopback and IGNIS_REDIS_PASS is empty — '
+              'anyone on the network can read sessions; set a password.',
+      ];
 
   /// The registry the node runs on: the Ignis core registry merged with the app's generated [app]
   /// (`Ignis.start(registry:)`). Missing → [StateError] ([noRegistryError]): a library cannot import the app's
@@ -168,6 +178,7 @@ class Ignis {
     final proxiesError = trustedProxiesError(env);
     if (proxiesError != null) throw StateError(proxiesError);
     backendTlsWarnings(env).forEach(stdout.writeln);
+    nodeWarnings(env).forEach(stdout.writeln);
     if (Crypto.previousKeyInvalid) {
       throw StateError('IGNIS_KEY_PREVIOUS is set but is not a valid key (64 random hex chars) — the node will not start, '
           'because secrets not yet re-encrypted by bin/rekey.dart would be unreadable');

@@ -59,6 +59,14 @@ Future<void> main(List<String> a) async {
       out.contains('START FAILED') && out.contains('IGNIS_API_BODY_BUDGET_MB'));
 
   print('backend TLS:');
+  // SEC-040.6: missing IGNIS_NODE and a remote Redis without a password are warned about
+  final n = Ignis.nodeWarnings;
+  check('no IGNIS_NODE → warning', n({}).single.contains('IGNIS_NODE'));
+  check('remote Redis without IGNIS_REDIS_PASS → warning',
+      n({'IGNIS_NODE': 'a', 'IGNIS_REDIS_HOST': '10.0.0.5'}).single.contains('IGNIS_REDIS_PASS'));
+  check('IGNIS_NODE set, Redis on loopback or with a password → no warning',
+      n({'IGNIS_NODE': 'a', 'IGNIS_REDIS_HOST': '127.0.0.1'}).isEmpty &&
+          n({'IGNIS_NODE': 'a', 'IGNIS_REDIS_HOST': '10.0.0.5', 'IGNIS_REDIS_PASS': 'x'}).isEmpty);
   List<String> w(Map<String, String> env) => Ignis.backendTlsWarnings(env);
   check('everything on loopback — no warning',
       w({'IGNIS_DB_HOST': '127.0.0.1', 'IGNIS_REDIS_HOST': 'localhost', 'IGNIS_S3_HOST': '::1'}).isEmpty);
