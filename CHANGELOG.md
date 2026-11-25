@@ -3,6 +3,7 @@
 ## 0.4.3 — Unreleased
 
 - `timezone` ^0.11.2 (tzdata 2026e); `TimeZone.offset` is now a `Duration` — ignis API unchanged.
+- Dependencies: `postgres` ^3.6.0 (3.7.0 locked), `jinja` ^0.7.2, `crypto` ^3.0.8, `mime` ^2.1.0; CI: `actions/checkout` v7.0.1, `actions/setup-node` v7.1.0.
 
 ## 0.4.2 — 2026-11-25
 
