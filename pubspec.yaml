@@ -17,7 +17,7 @@ dependencies:
   # Templates: Jinja ({% extends %}/{% block %}/{% macro %}), no autoescape — Renderer escapes (engine/render.dart).
   # Not Mustache: no template inheritance, and the panel shell must live in ONE layout.
   # 0.6.x because 0.7 requires Dart >= 3.12.
-  jinja: ^0.6.7
+  jinja: ^0.7.2
   # PostgreSQL driver.
   postgres: ^3.0.0
   # Password hashing: slow, salted bcrypt (brute-force resistant). Pure Dart.
