@@ -13,6 +13,7 @@
 
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:postgres/postgres.dart' hide Type;
 
 import 'db.dart';
@@ -81,10 +82,16 @@ class Orm {
   /// by key) under a per-entity lock. Keys assigned by the app: [insert]/[upsert].
   /// [only]: the UPDATE writes just these columns — a copy read earlier does not overwrite columns another
   /// writer (request, worker, node) changed meanwhile.
-  static Future<void> save(Object entity, {Iterable<String>? only}) async {
+  /// [ifUnchanged]: [stamp] of the [only] columns taken when the copy was read (e.g. a hidden form field); the row is
+  /// locked (`FOR UPDATE`) and, if those columns differ now (or the row is gone), [StaleEntity] is thrown and
+  /// nothing is written — two edits of the same form from two stale copies: the second is refused, not applied.
+  static Future<void> save(Object entity, {Iterable<String>? only, String? ifUnchanged}) async {
     final meta = EntityRegistry.byInstance(entity);
     final pk = meta.fields.firstWhere((f) => f.name == meta.pk);
     final id = pk.get(entity);
+    if (ifUnchanged != null && (only == null || id == null)) {
+      throw ArgumentError('ifUnchanged: needs only: and an existing row (${meta.table})');
+    }
     final conn = await Db.connect();
 
     // field values (without id on INSERT)
@@ -104,10 +111,21 @@ class Orm {
         final res = await conn.execute(Sql.named(sql), parameters: values(meta.nonId));
         pk.set(entity, res.first[0]); // write the assigned id back
       } else {
-        await conn.execute(Sql.named(updateSql(meta, only)), parameters: {
+        final update = Sql.named(updateSql(meta, only));
+        final params = {
           for (final f in meta.fields)
             if (f.name == meta.pk || only == null || only.contains(f.name)) f.name: f.get(entity),
-        });
+        };
+        if (ifUnchanged == null) {
+          await conn.execute(update, parameters: params);
+        } else {
+          await conn.runTx((tx) async {
+            if (await _current(tx, meta, id, only!) != ifUnchanged || ifUnchanged.isEmpty) {
+              throw StaleEntity(meta.typeName, id);
+            }
+            await tx.execute(update, parameters: params);
+          });
+        }
       }
       if (meta.cached) await _invalidate(meta, pk.get(entity)!);
     } finally {
@@ -115,14 +133,55 @@ class Orm {
     }
   }
 
+  /// Fingerprint of the [only] columns of [entity] for `ifUnchanged:` of [save]/[upsert]; null (no row yet) → `''`.
+  static String stamp(Object? entity, Iterable<String> only) {
+    if (entity == null) return '';
+    final meta = EntityRegistry.byInstance(entity);
+    final vals = [
+      for (final f in [for (final c in _columns(meta, only)) meta.fields.firstWhere((f) => f.name == c)])
+        switch (f.get(entity)) {
+          final DateTime d => d.toUtc().toIso8601String(),
+          // a copy from the Redis mirror decodes 1.0 as 1
+          final num n when f.type == double => n.toDouble(),
+          final v => v,
+        }
+    ];
+    return sha256.convert(utf8.encode(jsonEncode(vals))).toString().substring(0, 32);
+  }
+
+  /// [stamp] of the row as it is now, locked until the end of the transaction ([tx]); `''` = no row.
+  static Future<String> _current(Session tx, EntityMeta meta, Object id, Iterable<String> only) async {
+    final r = await tx.execute(Sql.named('SELECT * FROM ${meta.table} WHERE ${meta.pk}=@id FOR UPDATE'),
+        parameters: {'id': id});
+    return r.isEmpty ? '' : stamp(_hydrate(meta, r.first.toColumnMap()), only);
+  }
+
   /// INSERT with an app-assigned primary key; a duplicate key is skipped.
   /// true = row added. No lock — a single query is atomic.
   static Future<bool> insert(Object entity) => _insertRow(entity, insertSql);
 
   /// INSERT or overwrite of the row with the same primary key; [only]: an existing row gets just these
-  /// columns (a new row is inserted whole).
-  static Future<void> upsert(Object entity, {Iterable<String>? only}) =>
-      _insertRow(entity, (m) => upsertSql(m, only));
+  /// columns (a new row is inserted whole). [ifUnchanged]: as in [save]; `''` = the copy saw no row, so a row
+  /// someone added meanwhile is not overwritten ([StaleEntity]).
+  static Future<void> upsert(Object entity, {Iterable<String>? only, String? ifUnchanged}) async {
+    if (ifUnchanged == null) {
+      await _insertRow(entity, (m) => upsertSql(m, only));
+      return;
+    }
+    final meta = EntityRegistry.byInstance(entity);
+    if (only == null) throw ArgumentError('ifUnchanged: needs only: (${meta.table})');
+    final vals = {for (final f in meta.fields) f.name: f.get(entity)};
+    final id = vals[meta.pk]!;
+    await (await Db.connect()).runTx((tx) async {
+      final now = await _current(tx, meta, id, only);
+      // no row: plain INSERT — a row inserted by someone else after the SELECT is a conflict, not an overwrite
+      final r = now != ifUnchanged
+          ? null
+          : await tx.execute(Sql.named(now.isEmpty ? insertSql(meta) : upsertSql(meta, only)), parameters: vals);
+      if (r == null || r.affectedRows == 0) throw StaleEntity(meta.typeName, id);
+    });
+    if (meta.cached) await _invalidate(meta, id);
+  }
 
   static Future<bool> _insertRow(Object entity, String Function(EntityMeta) sql) async {
     final meta = EntityRegistry.byInstance(entity);
@@ -260,4 +319,14 @@ class Orm {
         key,
         value,
       ]);
+}
+
+/// [Orm.save]/[Orm.upsert] with `ifUnchanged:` refused: the row changed (or appeared/disappeared) since the copy
+/// was read. Nothing was written — show "changed meanwhile, reload".
+class StaleEntity implements Exception {
+  StaleEntity(this.type, this.id);
+  final String type;
+  final Object id;
+  @override
+  String toString() => 'StaleEntity: $type $id changed since it was read';
 }

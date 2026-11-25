@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2 — Unreleased
+
+### Added
+
+- `Orm.save(entity, only: [...], ifUnchanged: stamp)` and `Orm.upsert(..., only: [...], ifUnchanged: stamp)`: optimistic
+  lock for edits of the same row from two stale copies (two users, the same form). `Orm.stamp(entity, only)` (`''` for
+  "no row") goes into a hidden form field; the save locks just that row (`SELECT … FOR UPDATE`) and throws
+  `StaleEntity` without writing when the [only] columns changed, the row was deleted, or (`''`) someone created it
+  meanwhile. Columns outside `only:` (counters, worker state) are not part of the stamp.
+
 ## 0.4.1 — 2026-11-25
 
 ### Added
