@@ -60,18 +60,28 @@ class Orm {
   /// SQL of [insert]: a duplicate primary key is skipped.
   static String insertSql(EntityMeta m) => '${_insertPrefix(m)}NOTHING';
 
-  /// SQL of [upsert]: a duplicate primary key overwrites the other columns.
-  static String upsertSql(EntityMeta m) =>
-      '${_insertPrefix(m)}UPDATE SET ${m.nonId.map((f) => '${f.name}=EXCLUDED.${f.name}').join(',')}';
+  /// SQL of [upsert]: a duplicate primary key overwrites the other columns (only [only] when given).
+  static String upsertSql(EntityMeta m, [Iterable<String>? only]) =>
+      '${_insertPrefix(m)}UPDATE SET ${_columns(m, only).map((c) => '$c=EXCLUDED.$c').join(',')}';
 
-  /// SQL UPDATE in [save] (key parameter = PK column name).
-  static String updateSql(EntityMeta m) =>
-      'UPDATE ${m.table} SET ${m.nonId.map((f) => '${f.name}=@${f.name}').join(',')} '
+  /// SQL UPDATE in [save] (key parameter = PK column name); only [only] columns when given.
+  static String updateSql(EntityMeta m, [Iterable<String>? only]) =>
+      'UPDATE ${m.table} SET ${_columns(m, only).map((c) => '$c=@$c').join(',')} '
       'WHERE ${m.pk}=@${m.pk}';
+
+  static Iterable<String> _columns(EntityMeta m, Iterable<String>? only) {
+    final all = m.nonId.map((f) => f.name);
+    if (only == null) return all;
+    final bad = only.where((c) => !all.contains(c));
+    if (only.isEmpty || bad.isNotEmpty) throw ArgumentError('only: unknown or no columns of ${m.table}: $bad');
+    return only;
+  }
 
   /// Saves an entity (INSERT when the primary key is null — the database assigns it, otherwise UPDATE
   /// by key) under a per-entity lock. Keys assigned by the app: [insert]/[upsert].
-  static Future<void> save(Object entity) async {
+  /// [only]: the UPDATE writes just these columns — a copy read earlier does not overwrite columns another
+  /// writer (request, worker, node) changed meanwhile.
+  static Future<void> save(Object entity, {Iterable<String>? only}) async {
     final meta = EntityRegistry.byInstance(entity);
     final pk = meta.fields.firstWhere((f) => f.name == meta.pk);
     final id = pk.get(entity);
@@ -94,7 +104,10 @@ class Orm {
         final res = await conn.execute(Sql.named(sql), parameters: values(meta.nonId));
         pk.set(entity, res.first[0]); // write the assigned id back
       } else {
-        await conn.execute(Sql.named(updateSql(meta)), parameters: values(meta.fields));
+        await conn.execute(Sql.named(updateSql(meta, only)), parameters: {
+          for (final f in meta.fields)
+            if (f.name == meta.pk || only == null || only.contains(f.name)) f.name: f.get(entity),
+        });
       }
       if (meta.cached) await _invalidate(meta, pk.get(entity)!);
     } finally {
@@ -106,8 +119,10 @@ class Orm {
   /// true = row added. No lock — a single query is atomic.
   static Future<bool> insert(Object entity) => _insertRow(entity, insertSql);
 
-  /// INSERT or overwrite of the row with the same primary key.
-  static Future<void> upsert(Object entity) => _insertRow(entity, upsertSql);
+  /// INSERT or overwrite of the row with the same primary key; [only]: an existing row gets just these
+  /// columns (a new row is inserted whole).
+  static Future<void> upsert(Object entity, {Iterable<String>? only}) =>
+      _insertRow(entity, (m) => upsertSql(m, only));
 
   static Future<bool> _insertRow(Object entity, String Function(EntityMeta) sql) async {
     final meta = EntityRegistry.byInstance(entity);

@@ -13,6 +13,16 @@ Security hardening round SEC-040 (details in [SECURITY.md → 0.4.0](SECURITY.md
   `StorageException`. `ServeFilePage.allowed` moved to `Storage.allowed`.
 - A session or 2FA value in the 0.2.0 plain-login (non-JSON) format is no longer accepted.
 
+### Added
+
+- `Redis.delIfEqual(key, value)` and `Redis.expireIfEqual(key, value, seconds)`: compare-and-delete /
+  compare-and-expire, so a job lock whose TTL ran out and was taken by another node is not dropped or prolonged by
+  the late first owner. Use a value unique per run (node + random token). `releaseLocks(node)` also clears
+  `node:<token>` values.
+- `Orm.save(entity, only: [...])` and `Orm.upsert(entity, only: [...])` write just the listed columns, so a copy
+  read before long work does not overwrite columns another writer changed meanwhile (an unknown column throws
+  `ArgumentError`; `upsert` still inserts a new row whole).
+
 ### Changed
 
 - An elevated block whose context restore fails leaves the transaction fail-closed (later queries throw).
