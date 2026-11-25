@@ -378,6 +378,40 @@ Several nodes behind one load balancer need no extra component — only consiste
   sessions, permissions, settings and entity copies live in Redis — see *Why it scales* under
   [Caching](#-caching).
 
+Four nodes, with the addresses used in the examples below:
+
+```mermaid
+flowchart TB
+    U([clients · browsers · API]) -->|"HTTPS :443"| P
+
+    P["<b>Caddy or nginx</b> · proxy host 10.0.0.5<br/>TLS · HSTS · body limit<br/>round_robin · retry on another node<br/>sets X-Forwarded-For / -Proto<br/>GET /health on every node"]
+
+    P -->|"HTTP :8080 · round-robin, no sticky sessions"| NODES
+
+    subgraph NODES["4 nodes · same build · same shared env file"]
+        direction LR
+        N1["node-a<br/>10.0.0.11:8080"]
+        N2["node-b<br/>10.0.0.12:8080"]
+        N3["node-c<br/>10.0.0.13:8080"]
+        N4["node-d<br/>10.0.0.14:8080"]
+        N1 ~~~ N2 ~~~ N3 ~~~ N4
+    end
+
+    NODES -->|"every node: own DB pool, shared Redis"| DATA
+
+    subgraph DATA["shared state · private network, node addresses only"]
+        direction LR
+        PG[("PostgreSQL · 10.0.0.20:5432<br/>data · RLS · start-up advisory lock")]
+        RD[("Redis · 10.0.0.21:6379<br/>sessions · caches · rate limits · lock:* keys")]
+        S3[("S3 / MinIO · optional<br/>uploaded files")]
+        PG ~~~ RD ~~~ S3
+    end
+```
+
+No node talks to another: everything they share goes through PostgreSQL and Redis, so any node can serve any
+request, and a node can be added or removed by changing only the proxy upstreams. Each node has its own
+`IGNIS_NODE` and `IGNIS_BIND` ([below](#-environment-per-node)) and its own pool of `IGNIS_DB_POOL` connections.
+
 ```bash
 # the same on every node — one file, distributed with the build (mode 600)
 IGNIS_KEY=…                       # one key for the whole cluster
@@ -507,7 +541,7 @@ admin.example.com, demo.example.com {
 	request_body {
 		max_size 16MiB
 	}
-	reverse_proxy 10.0.0.11:8080 10.0.0.12:8080 10.0.0.13:8080 {
+	reverse_proxy 10.0.0.11:8080 10.0.0.12:8080 10.0.0.13:8080 10.0.0.14:8080 {
 		lb_policy round_robin
 		lb_try_duration 5s     # retry on another node: GETs, and any request that could not connect
 		fail_duration 30s      # passive checks: a failing node is skipped for 30 s
@@ -526,6 +560,7 @@ upstream ignis {
     server 10.0.0.11:8080 max_fails=1 fail_timeout=30s;
     server 10.0.0.12:8080 max_fails=1 fail_timeout=30s;
     server 10.0.0.13:8080 max_fails=1 fail_timeout=30s;
+    server 10.0.0.14:8080 max_fails=1 fail_timeout=30s;
 }
 
 # in the server block — headers exactly as in SECURITY.md
