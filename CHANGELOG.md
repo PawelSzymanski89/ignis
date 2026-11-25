@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3 — Unreleased
+
+- `timezone` ^0.11.2 (tzdata 2026e); `TimeZone.offset` is now a `Duration` — ignis API unchanged.
+
 ## 0.4.2 — 2026-11-25
 
 ### Added

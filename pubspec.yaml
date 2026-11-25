@@ -29,7 +29,7 @@ dependencies:
   # multipart/form-data parser (file uploads). Dart team package.
   mime: ^2.0.0
   # IANA time zones (schedules in a project's / recipient's zone) — tzdata bundled, pure Dart.
-  timezone: ^0.10.1
+  timezone: ^0.11.2
   # Redis client — sessions and caches shared by every node.
   redis: ^4.0.0
   # AES-GCM for secrets in the settings table (engine/crypto.dart). Already pulled in by minio;

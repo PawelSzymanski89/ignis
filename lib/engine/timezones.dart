@@ -39,7 +39,7 @@ List<String> zoneNames() {
 /// Offset of zone [zone] from UTC at instant [ms] (epoch ms), in minutes.
 int offsetMin(String zone, int ms) {
   _loadNow();
-  return tz.getLocation(zone).timeZone(ms).offset ~/ 60000;
+  return tz.getLocation(zone).timeZone(ms).offset.inMinutes;
 }
 
 /// UTC instant (epoch ms) of wall-clock time [year]-[month]-[day] [hour]:[min] in zone [zone].
@@ -49,9 +49,9 @@ int instantInZone(String zone, int year, int month, int day, int hour, int min) 
   final naive = DateTime.utc(year, month, day, hour, min).millisecondsSinceEpoch;
   // two approximations of the offset: before and after a possible clock change; the first instant whose
   // wall-clock time matches, and when none does (spring gap) — the later one (= shifted by the gap).
-  final candidates = {for (final p in [l.timeZone(naive - 86400000).offset, l.timeZone(naive + 86400000).offset]) naive - p}.toList()..sort();
+  final candidates = {for (final p in [l.timeZone(naive - 86400000).offset.inMilliseconds, l.timeZone(naive + 86400000).offset.inMilliseconds]) naive - p}.toList()..sort();
   for (final c in candidates) {
-    if (c + l.timeZone(c).offset == naive) return c;
+    if (c + l.timeZone(c).offset.inMilliseconds == naive) return c;
   }
   return candidates.last;
 }
@@ -59,7 +59,7 @@ int instantInZone(String zone, int year, int month, int day, int hour, int min) 
 /// Wall-clock date (year, month, day, weekday 1=Mon…7=Sun) of instant [ms] in zone [zone].
 ({int year, int month, int day, int weekday, int hour, int min}) wallInZone(String zone, int ms) {
   _loadNow();
-  final d = DateTime.fromMillisecondsSinceEpoch(ms + tz.getLocation(zone).timeZone(ms).offset, isUtc: true);
+  final d = DateTime.fromMillisecondsSinceEpoch(ms + tz.getLocation(zone).timeZone(ms).offset.inMilliseconds, isUtc: true);
   return (year: d.year, month: d.month, day: d.day, weekday: d.weekday, hour: d.hour, min: d.minute);
 }
 
