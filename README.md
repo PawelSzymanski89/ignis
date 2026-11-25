@@ -181,7 +181,7 @@ environment:
   sdk: ^3.11.0
 dependencies:
   ignis:
-    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.4.0}
+    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.4.1}
 dev_dependencies:
   build_runner: ^2.4.0
 ```
@@ -855,8 +855,9 @@ Redis-only session tests check `IGNIS_REDIS_HOST` instead). Engineering rules ar
 
 ## Status
 
-Version **0.4.0** — security hardening (`api: true` routes get no session/CSRF cookies, `Storage.read` takes the
-service; see the [changelog](CHANGELOG.md)). 0.3.0: pages and entities from a registry generated at build time, so a node
+Version **0.4.1** — owner-only Redis lock release/extend (`Redis.delIfEqual` / `expireIfEqual`) and
+`Orm.save` / `upsert(only:)`. 0.4.0: security hardening (`api: true` routes get no session/CSRF cookies,
+`Storage.read` takes the service; see the [changelog](CHANGELOG.md)). 0.3.0: pages and entities from a registry generated at build time, so a node
 also runs as a native binary; apps take a one-time step (`build_runner`, generate, pass `registry:`) — see the
 [upgrade notes](CHANGELOG.md). Earlier: 0.2.2 was a Dart 3.14 compatibility release, 0.2.1 a
 hardening follow-up to 0.2.0, after the first public release (0.1.0, extracted from a
