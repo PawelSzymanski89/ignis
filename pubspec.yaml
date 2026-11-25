@@ -27,7 +27,7 @@ dependencies:
   # MinIO/S3 client — file storage.
   minio: ^3.5.8
   # multipart/form-data parser (file uploads). Dart team package.
-  mime: ^2.0.0
+  mime: ^2.1.0
   # IANA time zones (schedules in a project's / recipient's zone) — tzdata bundled, pure Dart.
   timezone: ^0.10.1
   # Redis client — sessions and caches shared by every node.
