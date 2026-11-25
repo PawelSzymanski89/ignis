@@ -135,7 +135,7 @@ class CustomerAccounts {
   static Future<String?> resetToken(int service, String email, {String ip = ''}) async {
     final e = email.trim().toLowerCase();
     if (!validEmail(e)) return null;
-    if (await overLimit('rl:reset:ip:$ip', 10, 3600) ||
+    if (await overLimit('rl:reset:ip:${rateLimitAddress(ip)}', 10, 3600) ||
         await overLimit('rl:reset:${Sessions.hashToken('$service|$e')}', 3, 900)) {
       return null;
     }

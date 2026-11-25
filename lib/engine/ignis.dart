@@ -199,8 +199,9 @@ class Ignis {
     await Schema.underStartLock(() async {
       await Schema.sync();
       await Seed.seed();
+      // the app seed (indexes, data migrations) too — N nodes starting at once must not run it concurrently
+      await seed?.call();
     });
-    await seed?.call();
     await Storage.prepare();
     // Audit log cleanup — once a day, one node at a time.
     AuditLog.start();
