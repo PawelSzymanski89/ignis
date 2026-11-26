@@ -2,6 +2,14 @@
 
 ## 0.5.0 — Unreleased
 
+### Documentation
+
+- SECURITY.md: enabling TOTP describes what the account page shows (secret as text + `otpauth://` link, no QR);
+  the runtime-role section spells out RLS vs runtime role vs parameterised queries and recommends
+  `IGNIS_SCHEMA=validate` + `IGNIS_REQUIRE_RUNTIME_ROLE=1` on serving nodes with a separate migration step.
+- SECURITY.md / QUALITY.md: Jinja notes re-checked on 0.7.2 (no autoescape, slicing, `import` with `extends`,
+  positional macro arguments, `.get()` — all unchanged).
+
 ### Added
 
 - `Redis.runExclusive(..., maxRun:)` / `Ignis.every(..., maxRun:)` (default null = no limit): after `maxRun` the

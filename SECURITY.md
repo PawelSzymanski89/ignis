@@ -102,6 +102,18 @@ behave exactly as before.
 
 ### Runtime database role
 
+Three separate defences, each against a different failure:
+
+- **RLS** (`FORCE` + policies) — a query in code that **forgot the service filter** still sees only the current
+  tenant's rows.
+- **Runtime role** (not the table owner) — a compromised node or injected SQL **cannot change the policies for
+  good** (`ALTER`/`DROP POLICY`, `DISABLE ROW LEVEL SECURITY`, DDL); it does not stop context widening (limit below).
+- **Parameterised queries** (`Sql.named`) — the defence against **SQL injection** itself; neither RLS nor the role
+  replaces it.
+
+Recommended production setup: serving nodes with `IGNIS_SCHEMA=validate` and `IGNIS_REQUIRE_RUNTIME_ROLE=1` on the
+runtime role, and a separate migration step (owner role, `IGNIS_SCHEMA=update`) run before them on each deploy.
+
 The role that owns the tables can `ALTER`/`DROP` their policies. Split it: the **owner** only migrates
 (one deploy step or one node with `IGNIS_SCHEMA=update`), the serving nodes run on a **runtime role** with
 DML grants and `IGNIS_SCHEMA=validate`. Run as a superuser, once (names are examples; the same script is in
@@ -191,10 +203,11 @@ A fresh install has an `admin` account protected by a password only, and the pan
 the password and enable TOTP until it has one (unless `IGNIS_REQUIRE_PLATFORM_2FA=0`):
 
 1. Sign in, change the initial password (the panel forces it) to a long, random one kept in a password manager.
-2. `/admin/account` → **Second factor** → scan the QR code with any TOTP app (Aegis, Google Authenticator,
-   1Password, Bitwarden/Vaultwarden) and confirm with the current 6-digit code. Nothing is stored until that code
+2. `/admin/account` → **Second factor** → the page shows the secret as text and an `otpauth://` link (there is
+   no QR code). Type the secret into any TOTP app (Aegis, Google Authenticator, 1Password, Bitwarden/Vaultwarden),
+   or open the page on the phone and tap the link, which hands the secret to the authenticator app; then confirm with the current 6-digit code. Nothing is stored until that code
    is correct.
-3. Sign out and in again to check it; store the secret (or the QR) in the password manager as a backup.
+3. Sign out and in again to check it; store the secret (or the `otpauth://` link) in the password manager as a backup.
 4. Remove `IGNIS_ADMIN_PASS` from the env file: it is read **only** while the `users` table is empty (first start),
    so afterwards it is a stale plaintext copy of a password — changing it does **not** change the account.
 
@@ -214,7 +227,8 @@ another container, a VPN client — then faces just a password. Firewall the app
 
 - **SQL**: parameterised queries only (`Sql.named`). Interpolated parts are literals from code (column
   names, constant conditions), never user data.
-- **XSS**: Jinja 0.6.7 has **no autoescape**, so escaping is done by `Renderer` (`engine/render.dart`)
+- **XSS**: Jinja 0.7.x (checked on 0.7.2; 0.6.7 behaved the same) has **no autoescape** — `Template(autoEscape:)` is
+  accepted and ignored, so escaping is done by `Renderer` (`engine/render.dart`)
   — every String in the model, in nested maps and lists, and object fields read via the generated getters; at output, any
   other value (objects with their own `toString()`, exceptions, records), also inside a printed collection and
   in the `string` / `join` filters. `striptags` is Ignis' own: Jinja's version unescapes its result, which
