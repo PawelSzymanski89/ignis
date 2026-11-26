@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.2 — Unreleased
+## 0.5.2 — 2026-11-26
 
 ### Fixed
 
@@ -38,6 +38,15 @@
   + 15 s (a whole backoff plus the round itself) instead of ~30 s (the `≤ 10000` bound is unchanged). `key_rotation_test` compiles
   itself to kernel once instead of compiling `package:ignis` from source in each of its 14 child processes
   (~45 s → ~6 s), which ran into the test timeout on a loaded machine.
+- `api_body_budget_test`: the hanging-body check also goes through the server-side 503 record, with a 4 s deadline
+  (IGNIS-052.9).
+- `run_exclusive_pg_test`: after losing the lease (paused longer than the TTL, B took over and did its stage) a run
+  that checks `stillOwner()` starts no further stage; the resource ends as `[A1, B1]` (IGNIS-052.10).
+
+### Docs
+
+- `Redis.runExclusive` / README: the contract is at-least-once, not exactly-once, and there is no fencing token —
+  effects need deterministic ids (idempotency key, ledger with a unique key, dedup at read) (IGNIS-052.10).
 
 ## 0.5.1 — 2026-11-26
 
