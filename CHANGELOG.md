@@ -16,6 +16,10 @@
 - HTML responses (pages and the error page) send `Cross-Origin-Resource-Policy: same-origin`, so another origin
   cannot load a panel page as a subresource. A page may override it with its own header; `/files`, static assets
   and API/JSON responses do not get it (IGNIS-052.4).
+- New S3 object keys take the year/month (`t<service>/YYYY/MM/…`) from UTC, not the node's local time zone. Keys
+  already written are kept (the key is stored in `files`). `audit_log.occurred_at` stays in local time: it is a
+  `text` column without an offset, so mixing UTC rows with existing local ones would shift the displayed time
+  and the search/retention boundaries (IGNIS-052.5).
 
 ## 0.5.1 — 2026-11-26
 

@@ -273,7 +273,7 @@ class Storage {
     if (alreadyThere.isNotEmpty) return (alreadyThere.first[0] as int, true);
 
     final ext = extension(name);
-    final now = DateTime.now();
+    final now = DateTime.now().toUtc(); // the year/month in the key does not depend on the node TZ; old keys stay as written
     final randomValue = List.generate(16, (_) => _rnd.nextInt(256))
         .map((b) => b.toRadixString(16).padLeft(2, '0'))
         .join();
