@@ -10,6 +10,9 @@
 - `/files` sends `Content-Length` with the object length reported by S3 (the same as `files.size`, written at
   upload) and fails the stream when it ends with a different byte count, so a transfer cut mid-way drops the
   connection instead of a truncated body under 200 that a browser or CDN may keep for 24 h (IGNIS-052.2).
+- Multipart `Content-Disposition` parameters are matched as tokens (at the start or after `;`), with `\"` escapes
+  unescaped. Before, `name=` also matched the tail of `filename="…"`, so a part sending `filename` before `name`
+  got the file name as its field name (IGNIS-052.3).
 
 ## 0.5.1 — 2026-11-26
 
