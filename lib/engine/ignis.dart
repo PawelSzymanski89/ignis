@@ -266,6 +266,8 @@ class Ignis {
       final clean = await shutdown.close(server);
       if (!clean) stderr.writeln('Ignis: requests aborted after 20 s');
       stopJobs();
+      // running bodies see stillOwner() false and get a moment to stop before their locks are freed
+      await Redis.abandonExclusive();
       try {
         await Redis.releaseLocks(node);
       } catch (e) {

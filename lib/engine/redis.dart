@@ -160,19 +160,37 @@ class Redis {
         beating = false;
       }
     });
+    final done = Completer<void>();
+    final run = _Run(() => owner = false, done.future);
+    _runs.add(run);
     try {
       await body(() => owner);
     } finally {
       beat.cancel();
       _confirms.remove(name);
+      _runs.remove(run);
       try {
         await delIfEqual(key, token);
       } catch (_) {} // the TTL frees it anyway
+      done.complete();
     }
     return true;
   }
 
   static final _confirms = <String, Future<bool> Function()>{};
+  static final _runs = <_Run>{};
+
+  /// Shutdown: turns `stillOwner()` (and [confirmExclusive]) false for every [runExclusive] run active in this
+  /// isolate and waits up to [wait] for them to finish (each releases its own lock). Call before [releaseLocks],
+  /// or a run still going would lose its lock to another node while it keeps working.
+  static Future<void> abandonExclusive({Duration wait = const Duration(seconds: 10)}) async {
+    final runs = _runs.toList();
+    for (final r in runs) {
+      r.revoke();
+    }
+    if (runs.isEmpty) return;
+    await Future.wait([for (final r in runs) r.done]).timeout(wait, onTimeout: () => const []);
+  }
 
   /// Direct ownership check for a [runExclusive] run of [name] in this isolate: compare-and-expire in Redis now
   /// (not the keep-alive's last result). Use before each side-effecting batch of a long run. False when no run
@@ -217,4 +235,10 @@ class Redis {
   /// SMEMBERS key → list.
   static Future<List<String>> smembers(String key) async =>
       ((await cmd(['SMEMBERS', key])) as List? ?? const []).cast<String>();
+}
+
+class _Run {
+  _Run(this.revoke, this.done);
+  final void Function() revoke;
+  final Future<void> done;
 }

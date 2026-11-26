@@ -92,6 +92,24 @@ Future<void> main() async {
   check('every: stopJobs zatrzymuje timer', ticks == stopped);
   check('every: blokada zwolniona mimo błędu', await Redis.get(k) == null);
 
+  // Shutdown: abandonExclusive turns stillOwner() false for a running body and waits for it, so releaseLocks
+  // never frees a lock whose run still goes on (another node would run the same job alongside).
+  var bodyDone = false;
+  bool? ownerSeen;
+  final run = Redis.runExclusive(name, const Duration(seconds: 30), (owner) async {
+    for (var i = 0; i < 100 && owner(); i++) {
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+    ownerSeen = owner();
+    bodyDone = true;
+  });
+  await Future.delayed(const Duration(milliseconds: 200));
+  await Redis.abandonExclusive(wait: const Duration(seconds: 3));
+  check('abandonExclusive: stillOwner false, przebieg zakończony przed powrotem', bodyDone && ownerSeen == false);
+  check('abandonExclusive: confirmExclusive false', !await Redis.confirmExclusive(name));
+  await run;
+  check('abandonExclusive: blokada zwolniona przez sam przebieg', await Redis.get(k) == null);
+
   await Redis.del(k);
   if (_bledy > 0) {
     print('\n$_bledy NOT PASSED');
