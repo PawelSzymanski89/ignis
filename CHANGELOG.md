@@ -4,6 +4,9 @@
 
 ### Added
 
+- Test `test/seed_many_nodes_pg_test.dart`: the real `Ignis.start(seed:)` on two processes — seed callbacks never
+  overlap, every node runs its own, the HTTP port opens only after the start-up lock; a throwing seed exits the
+  node with an error and the other node starts. README (Schema with many nodes): the seed is not exactly-once.
 - Background jobs: `Redis.runExclusive(name, ttl, body)` — `lock:<name>` with a per-run token, keep-alive every
   ttl/3, owner-only release; `body` gets `stillOwner()` (false once the lock is lost). `Ignis.every(name, interval, ttl,
   body)` runs it on a timer (errors logged, no overlap); `Ignis.stopJobs()` runs at node shutdown.

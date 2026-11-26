@@ -484,6 +484,10 @@ account) run under one PostgreSQL advisory lock. The others log
 `Ignis: waiting for start-up lock (another node is migrating or seeding)` and give up after 5 minutes. Since
 0.4.4 the app's own `seed:` callback runs **inside** the same lock, one node at a time — it still runs on every
 node, so keep it idempotent (`ON CONFLICT DO NOTHING`, `CREATE INDEX IF NOT EXISTS`) and short: other nodes wait for it.
+The seed is **not exactly-once**: N nodes run it N times (one after another), and a node that fails or is killed
+mid-callback leaves partial work for the next one to redo — write it so a repeated or half-finished run is harmless.
+An exception in the callback stops that node's start (non-zero exit, the lock is released); the HTTP port opens
+only after the node has left the lock (`test/seed_many_nodes_pg_test.dart`).
 
 Recommended split ([SECURITY.md → Runtime database role](SECURITY.md#runtime-database-role)):
 
