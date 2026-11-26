@@ -181,7 +181,7 @@ environment:
   sdk: ^3.11.0
 dependencies:
   ignis:
-    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.4.3}
+    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.4.4}
 dev_dependencies:
   build_runner: ^2.4.0
 ```
@@ -478,9 +478,9 @@ client look like the proxy — see the comment in the [Quick start](#quick-start
 
 Nodes that start at the same time do not race: schema sync and the core seed (including the first `admin`
 account) run under one PostgreSQL advisory lock. The others log
-`Ignis: waiting for start-up lock (another node is migrating or seeding)` and give up after 5 minutes. The
-app's own `seed:` callback runs **after** that lock, on every node — keep it idempotent (`ON CONFLICT DO
-NOTHING`).
+`Ignis: waiting for start-up lock (another node is migrating or seeding)` and give up after 5 minutes. Since
+0.4.4 the app's own `seed:` callback runs **inside** the same lock, one node at a time — it still runs on every
+node, so keep it idempotent (`ON CONFLICT DO NOTHING`, `CREATE INDEX IF NOT EXISTS`) and short: other nodes wait for it.
 
 Recommended split ([SECURITY.md → Runtime database role](SECURITY.md#runtime-database-role)):
 

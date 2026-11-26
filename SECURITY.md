@@ -1,6 +1,6 @@
 # Ignis security
 
-This document describes the **actual state** of Ignis 0.4.3, not intentions. Every point maps to a
+This document describes the **actual state** of Ignis 0.4.4, not intentions. Every point maps to a
 file you can check. Open problems are listed under "Known gaps", not left out.
 
 > The first public release (0.1.0) included the pre-release audit fixes for areas A (tenant isolation / auth),
@@ -165,6 +165,31 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
   permissions panel, with a audit log entry.
 - **If the TOTP ciphertext cannot be decrypted, login is denied** rather than silently skipping the
   factor.
+
+### Enabling TOTP (do it for every staff account, the platform `admin` first)
+
+The engine does not force a second factor — a fresh install has an `admin` account protected by a password only.
+That account sees every service (context `0`), so treat 2FA on it as part of the install, not an option:
+
+1. Sign in, change the initial password (the panel forces it) to a long, random one kept in a password manager.
+2. `/admin/account` → **Second factor** → scan the QR code with any TOTP app (Aegis, Google Authenticator,
+   1Password, Bitwarden/Vaultwarden) and confirm with the current 6-digit code. Nothing is stored until that code
+   is correct.
+3. Sign out and in again to check it; store the secret (or the QR) in the password manager as a backup.
+4. Remove `IGNIS_ADMIN_PASS` from the env file: it is read **only** while the `users` table is empty (first start),
+   so afterwards it is a stale plaintext copy of a password — changing it does **not** change the account.
+
+Recovery when the phone is lost and nobody else can sign in (console of any node, with the node's env):
+
+```sh
+set -a && . /etc/your-app.env && set +a
+dart run ignis:account disable-2fa admin       # clears the second factor (audit log: console:<user>)
+dart run ignis:account password admin < file   # new password from stdin; must be changed at next sign-in
+```
+
+Then enable TOTP again. Other accounts' factors are cleared from the permissions panel by an administrator.
+Do not rely on network filters alone (e.g. `/admin` reachable only from a LAN/VPN): anything inside that network —
+another container, a VPN client — then faces just a password. Firewall the app port so only the proxy reaches it.
 
 ## Input
 

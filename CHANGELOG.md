@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.4 — 2026-11-26
+
+### Fixed
+
+- The application seed (`Ignis.start(seed: ...)`) now runs **inside** the start-up advisory lock, together with
+  `Schema.sync()` and the engine seed. Before, N nodes starting at once ran it concurrently (index builds, data
+  migrations), and a node could serve traffic before another node's app seed finished.
+- Customer password reset: the per-IP limit (`rl:reset:ip:…`) is keyed by `rateLimitAddress` (IPv6 /64), like every
+  other limit — rotating addresses within one /64 no longer gets around it.
+
+### Documentation
+
+- SECURITY.md → [Second factor](SECURITY.md#second-factor): how to enable TOTP for the platform administrator, what to
+  do after the first start (`IGNIS_ADMIN_PASS` is used only when the `users` table is empty — remove it from the env
+  file afterwards) and how to recover a lost phone from the console.
+
 ## 0.4.3 — 2026-11-25
 
 - `timezone` ^0.11.2 (tzdata 2026e); `TimeZone.offset` is now a `Duration` — ignis API unchanged.
