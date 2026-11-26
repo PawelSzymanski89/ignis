@@ -213,6 +213,39 @@ Future<void> main() async {
       ttlB0 != null && ttlB0! > 25000 && ttlB1 > 25000 && ttlB1 <= ttlB0!);
   await Redis.del(k);
 
+  // IGNIS-052.10: after losing the lease A starts no further stage. A runs stages and checks stillOwner() before
+  // each one; between stage 1 and 2 it is "paused" longer than the TTL (maxRun stops its keep-alive, like a frozen
+  // process), B takes the lease and does its stage. A wakes up and must not start stage 2. The resource (a Redis
+  // list) ends as [A1, B1]. This is the documented contract: a lease, not a mutex — what A already started before
+  // the pause is not undone, so effects must be idempotent (deterministic ids, dedup at read).
+  final res = 'test:052-10:res';
+  await Redis.del(k);
+  await Redis.del(res);
+  var aAfterWake = 0;
+  bool? bWhileA;
+  await Redis.runExclusive(name, const Duration(seconds: 1), maxRun: const Duration(milliseconds: 100), (owner) async {
+    for (var stage = 1; stage <= 3; stage++) {
+      if (!owner()) break;
+      if (stage > 1) aAfterWake++;
+      await Redis.cmd(['RPUSH', res, 'A$stage']);
+      if (stage == 1) {
+        bWhileA = await Redis.runExclusive(name, const Duration(seconds: 30), (_) async {}); // lease held → false
+        for (var i = 0; i < 40 && await Redis.get(k) != null; i++) {
+          await Future.delayed(const Duration(milliseconds: 100)); // the pause, longer than the TTL
+        }
+        final bRan = await Redis.runExclusive(name, const Duration(seconds: 30), (_) async {
+          await Redis.cmd(['RPUSH', res, 'B1']);
+        });
+        if (!bRan) throw StateError('B did not get the expired lease');
+      }
+    }
+  });
+  final stages = (await Redis.cmd(['LRANGE', res, '0', '-1']) as List).map((x) => '$x').toList();
+  check('lease: B nie dostaje blokady, gdy lease A żyje', bWhileA == false);
+  check('lease: A po utracie lease nie zaczyna kolejnego etapu, zasób = [A1, B1] (jest $stages)',
+      aAfterWake == 0 && stages.join(',') == 'A1,B1');
+  await Redis.del(res);
+
   await Redis.del(k);
   if (_bledy > 0) {
     print('\n$_bledy NOT PASSED');

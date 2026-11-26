@@ -181,7 +181,7 @@ environment:
   sdk: ^3.11.0
 dependencies:
   ignis:
-    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.5.1}
+    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.5.2}
 dev_dependencies:
   build_runner: ^2.4.0
 ```
@@ -548,6 +548,11 @@ For longer jobs use `Ignis.every(name, interval, ttl, (stillOwner) async { … }
   be lost right after a check. Check before each batch and before any irreversible effect, and make the
   effect itself safe to repeat (idempotent, or a conditional write such as `… WHERE NOT sent`).
 - Only the owning run renews or releases its lock (compare-and-expire / compare-and-delete on its token).
+- **At-least-once, not exactly-once.** After a lost lease two runs can overlap and a stage the old run had
+  already started still completes; ignis gives no fencing token (it only helps when the target checks it
+  atomically with the write). Use deterministic ids — an idempotency key, a ledger row with a unique key, or
+  dedup at read — and reconcile. Tested: after losing the lease a run that checks `stillOwner()` starts no
+  further stage.
 
 ### 🚦 Proxy for several nodes
 
