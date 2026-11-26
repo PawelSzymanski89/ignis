@@ -1406,6 +1406,9 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       'lib/engine/customer_page.dart',
       'lib/engine/db.dart',
       'lib/engine/engine.dart',
+      'lib/engine/engine_cors.dart',
+      'lib/engine/engine_headers.dart',
+      'lib/engine/engine_language.dart',
       'lib/engine/format.dart',
       'lib/engine/i18n.dart',
       'lib/engine/ignis.dart',
@@ -1451,6 +1454,6 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       'lib/pages/settings_page.dart',
       'lib/src/builder/registry_builder.dart',
     ],
-    sum: 'f50e89ddeaf16c11d87bcd2dda1ed380b8d4682c04704da5dfff9b92eefb19b6',
+    sum: '5040bb3df0b42fa215b39445c97c9714175ccd94236810efe10c027bd24d95e1',
   ),
 );
