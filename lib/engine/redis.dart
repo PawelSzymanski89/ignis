@@ -141,6 +141,14 @@ class Redis {
     if (!await setNxEx(key, token, seconds)) return false;
     var owner = true;
     var beating = false;
+    _confirms[name] = () async {
+      try {
+        if (owner && !await expireIfEqual(key, token, seconds)) owner = false;
+      } catch (_) {
+        owner = false;
+      }
+      return owner;
+    };
     final beat = Timer.periodic(Duration(milliseconds: seconds * 1000 ~/ 3), (_) async {
       if (!owner || beating) return;
       beating = true;
@@ -156,12 +164,20 @@ class Redis {
       await body(() => owner);
     } finally {
       beat.cancel();
+      _confirms.remove(name);
       try {
         await delIfEqual(key, token);
       } catch (_) {} // the TTL frees it anyway
     }
     return true;
   }
+
+  static final _confirms = <String, Future<bool> Function()>{};
+
+  /// Direct ownership check for a [runExclusive] run of [name] in this isolate: compare-and-expire in Redis now
+  /// (not the keep-alive's last result). Use before each side-effecting batch of a long run. False when no run
+  /// of [name] is active here or the lock is gone / taken over (then `stillOwner()` turns false too).
+  static Future<bool> confirmExclusive(String name) => _confirms[name]?.call() ?? Future.value(false);
 
   /// DEL key (e.g. sign-out).
   static Future<void> del(String key) => cmd(['DEL', key]);

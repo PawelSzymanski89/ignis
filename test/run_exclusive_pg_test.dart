@@ -53,6 +53,20 @@ Future<void> main() async {
   check('cudza blokada nie skasowana', await Redis.get(k) == 'node-B:obca');
   await Redis.del(k);
 
+  // confirmExclusive sees the takeover at once (keep-alive with ttl 30 s would not fire for 10 s).
+  bool? confirmedOwn, confirmedLost, flagAfter;
+  await Redis.runExclusive(name, const Duration(seconds: 30), (owner) async {
+    confirmedOwn = await Redis.confirmExclusive(name);
+    await Redis.set(k, 'node-B:obca');
+    confirmedLost = await Redis.confirmExclusive(name);
+    flagAfter = owner();
+  });
+  check('confirmExclusive: true dla własnej, false zaraz po przejęciu',
+      confirmedOwn == true && confirmedLost == false && flagAfter == false);
+  check('confirmExclusive: brak przebiegu → false', !await Redis.confirmExclusive(name));
+  check('confirmExclusive: cudza blokada nie skasowana', await Redis.get(k) == 'node-B:obca');
+  await Redis.del(k);
+
   // Lock lost by DEL.
   bool? ownerDel;
   await Redis.runExclusive(name, const Duration(seconds: 3), (owner) async {
