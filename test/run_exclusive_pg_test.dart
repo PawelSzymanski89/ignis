@@ -179,6 +179,40 @@ Future<void> main() async {
     check('lockNode == IGNIS_NODE gdy ustawione', Redis.lockNode == envNode);
   }
 
+  // IGNIS-051.3: lease invariants on a real Redis. A holds the lease, maxRun stops its keep-alive, the lease
+  // expires (ttl 1 s) and B takes over; A's renew / release / releaseLocks / confirmExclusive leave B's key
+  // (value and TTL) untouched and A's stillOwner() is false.
+  await Redis.del(k);
+  const tokenB = 'node-B-0513:tok';
+  String? tokenA;
+  bool? aOwner, aConfirm, aExpire, aDel;
+  String? bAfterRenew, bAfterRelease;
+  int? ttlB0, ttlB1;
+  await Redis.runExclusive(name, const Duration(seconds: 1), maxRun: const Duration(milliseconds: 100), (owner) async {
+    tokenA = await Redis.get(k);
+    for (var i = 0; i < 40 && await Redis.get(k) != null; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    await Redis.setNxEx(k, tokenB, 30); // B takes over the expired lease
+    ttlB0 = await Redis.cmd(['PTTL', k]) as int;
+    aConfirm = await Redis.confirmExclusive(name);
+    aExpire = await Redis.expireIfEqual(k, tokenA!, 1); // A's renew
+    bAfterRenew = await Redis.get(k);
+    aDel = await Redis.delIfEqual(k, tokenA!); // A's release
+    await Redis.releaseLocks(Redis.lockNode); // A's shutdown
+    bAfterRelease = await Redis.get(k);
+    aOwner = owner();
+  });
+  ttlB1 = await Redis.cmd(['PTTL', k]) as int; // after A's own finally (delIfEqual)
+  check('lease: A miał token z prefiksem lockNode', tokenA != null && tokenA!.startsWith('${Redis.lockNode}:'));
+  check('lease: A po wygaśnięciu — stillOwner false, confirmExclusive false', aOwner == false && aConfirm == false);
+  check('lease: przedłużenie i zwolnienie A nie działają na kluczu B', aExpire == false && aDel == false);
+  check('lease: wartość klucza B nietknięta (renew, release, releaseLocks(A), finally A)',
+      bAfterRenew == tokenB && bAfterRelease == tokenB && await Redis.get(k) == tokenB);
+  check('lease: TTL B nietknięty ($ttlB0 → $ttlB1 ms)',
+      ttlB0 != null && ttlB1 != null && ttlB0! > 25000 && ttlB1! > 25000 && ttlB1! <= ttlB0!);
+  await Redis.del(k);
+
   await Redis.del(k);
   if (_bledy > 0) {
     print('\n$_bledy NOT PASSED');

@@ -10,6 +10,12 @@
   (900 s) since its last failure has passed. `Permissions.retryEvery` is now the initial backoff (1 s);
   `retryMax` / `retryMaxKeys` added.
 
+### Tests
+
+- Lease invariants on a real Redis (`run_exclusive_pg_test.dart`): after A's lease expires and B takes over,
+  A's renew, release, `releaseLocks(A)` and `confirmExclusive` leave B's key (value and TTL) untouched, and
+  A's `stillOwner()` / `confirmExclusive` are false.
+
 ### Documentation
 
 - `Redis.runExclusive` / `Ignis.every`: the docstring sits on `runExclusive` again (it was above `lockNode`)
