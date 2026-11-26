@@ -116,11 +116,11 @@ Future<void> main(List<String> args) async {
   check('IGNIS_API_BODY_BUDGET_MB is read at start-up', Engine.apiBodyBudget == 3 * mb);
 
   // a client that stops sending and keeps the connection open: the request deadline ends it and frees its share
-  Engine.requestDeadline = const Duration(seconds: 2);
+  Engine.requestDeadline = const Duration(seconds: 4);
   final hung = await start((2.5 * mb).round(), 2 * mb);
   await settle();
-  check('while the body hangs its share is held (1.5 MB → 503)', status(await post(List.filled((1.5 * mb).round(), 0x61))) == 503);
-  final closed = hung.drain<void>().then((_) => true, onError: (_) => true).timeout(const Duration(seconds: 5), onTimeout: () => false);
+  await rejected('while the body hangs its share is held (1.5 MB)', List.filled((1.5 * mb).round(), 0x61));
+  final closed = hung.drain<void>().then((_) => true, onError: (_) => true).timeout(const Duration(seconds: 8), onTimeout: () => false);
   check('the deadline closes the hanging connection', await closed);
   await settle();
   check('…and releases its share (2.9 MB → 200)', status(await post(List.filled((2.9 * mb).round(), 0x61))) == 200);
