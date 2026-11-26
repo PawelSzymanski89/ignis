@@ -39,6 +39,11 @@
 
 ### Fixed
 
+- `rateLimitAddress`: one client → one attempt-limit key in every spelling. IPv4-mapped IPv6 (`::ffff:10.0.0.1`,
+  `::ffff:a00:1` — what a dual-stack socket reports for IPv4 clients) now counts as plain IPv4; before, the hex form
+  collapsed ALL mapped clients into one shared `::/64` key, and the dotted form keyed apart from `10.0.0.1`. Zone
+  (`%eth0`), `[…]` and a port (`1.2.3.4:5678`, `[::1]:443` in X-Forwarded-For) are dropped. Existing counters re-key.
+
 - A failed permission/settings cache invalidation (Redis blip) is logged and retried in the background until it goes
   through, instead of leaving a revoked permission cached for up to 15 min. Other swallowed Redis errors in
   `Permissions` are logged to stderr (at most once a minute per kind).
