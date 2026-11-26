@@ -8,8 +8,9 @@
   ttl/3, owner-only release; `body` gets `stillOwner()` (false once the lock is lost). `Ignis.every(name, interval, ttl,
   body)` runs it on a timer (errors logged, no overlap); `Ignis.stopJobs()` runs at node shutdown.
   `Redis.confirmExclusive(name)` checks ownership in Redis right now (for long runs, before each batch).
-  `Redis.abandonExclusive({wait})` turns `stillOwner()` false for active runs and waits for them; node shutdown
-  calls it before `Redis.releaseLocks`, so a run still going is not doubled by another node taking its lock.
+  `Redis.abandonExclusive({wait})` turns `stillOwner()` false for active runs, waits for them and returns the tokens
+  of runs still going; node shutdown passes them to `Redis.releaseLocks(node, keep: ...)`, so a run still going keeps
+  its lock (TTL frees it) instead of being doubled by another node.
 - RLS by an app tenant column: `@Entity(..., tenantColumn: 'tenant')` (text or int) and `Db.asTenant(tenant, body)`
   (`ignis.tenant`, local to one transaction). No tenant = 0 rows; only the system context sees all; `Schema.checkRls`
   covers the new tables. `EntityMeta` gains an optional `tenantColumn` (regenerate the registry). Entities without it

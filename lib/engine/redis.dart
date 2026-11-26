@@ -161,7 +161,7 @@ class Redis {
       }
     });
     final done = Completer<void>();
-    final run = _Run(() => owner = false, done.future);
+    final run = _Run(token, () => owner = false, done.future);
     _runs.add(run);
     try {
       await body(() => owner);
@@ -181,15 +181,17 @@ class Redis {
   static final _runs = <_Run>{};
 
   /// Shutdown: turns `stillOwner()` (and [confirmExclusive]) false for every [runExclusive] run active in this
-  /// isolate and waits up to [wait] for them to finish (each releases its own lock). Call before [releaseLocks],
-  /// or a run still going would lose its lock to another node while it keeps working.
-  static Future<void> abandonExclusive({Duration wait = const Duration(seconds: 10)}) async {
+  /// isolate and waits up to [wait] for them to finish (each releases its own lock). Returns the lock tokens of
+  /// runs still going after [wait] — pass them to [releaseLocks] as `keep`, or another node would take the lock
+  /// and run the same job alongside (their TTL frees them later).
+  static Future<List<String>> abandonExclusive({Duration wait = const Duration(seconds: 10)}) async {
     final runs = _runs.toList();
     for (final r in runs) {
       r.revoke();
     }
-    if (runs.isEmpty) return;
+    if (runs.isEmpty) return const [];
     await Future.wait([for (final r in runs) r.done]).timeout(wait, onTimeout: () => const []);
+    return [for (final r in _runs) r.token];
   }
 
   /// Direct ownership check for a [runExclusive] run of [name] in this isolate: compare-and-expire in Redis now
@@ -202,9 +204,10 @@ class Redis {
 
   /// Releases `lock:*` locks held by [node] — on shutdown, so background jobs start on another node without
   /// waiting for the TTL. Matches both the value == node name (plain locks) and the value `node:<run token>`
-  /// (locks taken with a per-run token via [delIfEqual]).
+  /// (locks taken with a per-run token via [delIfEqual]), except values in [keep] (runs still going, see
+  /// [abandonExclusive]).
   /// SCAN in batches, not KEYS — KEYS blocked Redis (and the sessions of all nodes) for the duration of the scan.
-  static Future<void> releaseLocks(String node) async {
+  static Future<void> releaseLocks(String node, {Iterable<String> keep = const []}) async {
     var cursor = '0';
     do {
       final r = (await cmd(['SCAN', cursor, 'MATCH', 'lock:*', 'COUNT', '500'])) as List;
@@ -213,12 +216,13 @@ class Redis {
       if (keys.isEmpty) continue;
       await cmd([
         'EVAL',
-        "local p = ARGV[1] .. ':' "
+        "local p = ARGV[1] .. ':' local keep = {} for i = 2, #ARGV do keep[ARGV[i]] = true end "
             "for _, k in ipairs(KEYS) do local v = redis.call('GET', k) "
-            "if v == ARGV[1] or (v and v:sub(1, #p) == p) then redis.call('DEL', k) end end",
+            "if v and not keep[v] and (v == ARGV[1] or v:sub(1, #p) == p) then redis.call('DEL', k) end end",
         '${keys.length}',
         ...keys,
         node,
+        ...keep,
       ]);
     } while (cursor != '0');
   }
@@ -238,7 +242,8 @@ class Redis {
 }
 
 class _Run {
-  _Run(this.revoke, this.done);
+  _Run(this.token, this.revoke, this.done);
+  final String token;
   final void Function() revoke;
   final Future<void> done;
 }

@@ -110,6 +110,19 @@ Future<void> main() async {
   await run;
   check('abandonExclusive: blokada zwolniona przez sam przebieg', await Redis.get(k) == null);
 
+  // A body that ignores stillOwner and outlives the wait: its token comes back and releaseLocks keeps its lock
+  // (the TTL frees it later) — freeing it would let another node run the same job alongside.
+  final slow = Redis.runExclusive(name, const Duration(seconds: 30), (_) async {
+    await Future.delayed(const Duration(milliseconds: 1500));
+  });
+  await Future.delayed(const Duration(milliseconds: 100));
+  final still = await Redis.abandonExclusive(wait: const Duration(milliseconds: 200));
+  await Redis.releaseLocks(Platform.environment['IGNIS_NODE'] ?? 'node', keep: still);
+  check('abandonExclusive: trwający przebieg zwrócony, releaseLocks zostawia jego blokadę',
+      still.length == 1 && await Redis.get(k) == still.first);
+  await slow;
+  check('po zakończeniu przebieg zwalnia blokadę sam', await Redis.get(k) == null);
+
   await Redis.del(k);
   if (_bledy > 0) {
     print('\n$_bledy NOT PASSED');
