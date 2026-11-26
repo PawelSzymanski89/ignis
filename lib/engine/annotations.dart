@@ -150,7 +150,12 @@ class Entity {
   /// unique: [['username','package_id']]).
   final List<List<String>> unique;
 
-  const Entity(this.table, {this.pk = 'id', this.unique = const []});
+  /// App tenant column (text or int) for row-level security: a row is visible and writable only when the column
+  /// equals `ignis.tenant` ([Db.asTenant]) or in the system context ([Db.asSystem]); no tenant = 0 rows.
+  /// Replaces the `service`-based policy for this table. Null = the table behaves as without it.
+  final String? tenantColumn;
+
+  const Entity(this.table, {this.pk = 'id', this.unique = const [], this.tenantColumn});
 }
 
 /// Cached entity — copied to Redis (key `entity:<Type>:<id>`),

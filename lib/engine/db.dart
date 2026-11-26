@@ -37,9 +37,12 @@ import 'i18n.dart';
 /// Request and system sessions are closed in `finally` — code that outlived the request (an un-awaited
 /// Future, a timer) gets an exception instead of someone else's or a reset connection.
 class DbSession {
-  DbSession._poolRef(this._poolRef) : _connection = null, _context = null;
-  DbSession._connection(this._connection) : _poolRef = null, _context = null;
-  DbSession._lazy(Pool pool, String context) : _poolRef = pool, _connection = null, _context = context;
+  DbSession._poolRef(this._poolRef) : _connection = null, _context = null, _tenant = null;
+  DbSession._connection(this._connection) : _poolRef = null, _context = null, _tenant = null;
+  DbSession._lazy(Pool pool, String context, [this._tenant]) : _poolRef = pool, _connection = null, _context = context;
+
+  /// App tenant of the lazy transaction (`ignis.tenant`, [Db.asTenant]), or null.
+  final String? _tenant;
 
   /// Pool: no context ([_context] == null), or the connection source of the lazy transaction.
   final Pool? _poolRef;
@@ -101,6 +104,9 @@ class DbSession {
         _result = _poolRef!.runTx((tx) async {
           acquired = true;
           await tx.execute(r"SELECT set_config('" + Db.serviceGuc + r"', $1, true)", parameters: [_context]);
+          if (_tenant != null) {
+            await tx.execute(r"SELECT set_config('" + Db.tenantGuc + r"', $1, true)", parameters: [_tenant]);
+          }
           ready.complete(tx);
           // the request error arrives as a value: completeError without a listener (the pool has not returned
           // the connection yet) would reach the request zone as unhandled
@@ -215,6 +221,9 @@ class Db {
   /// Name of the Postgres session variable the RLS policies use.
   static const serviceGuc = 'ignis.service';
 
+  /// Name of the Postgres session variable the RLS policies of @Entity(tenantColumn:) tables use.
+  static const tenantGuc = 'ignis.tenant';
+
   /// "Nobody" hash — bcrypt runs for a non-existent login as well, so the response
   /// time does not reveal which accounts exist. A constant with cost [bcryptCost]: computed lazily it
   /// stalled the main isolate for ~250 ms, and in a fresh isolate (Isolate.run) it cost two bcrypts instead of one.
@@ -287,8 +296,23 @@ class Db {
   /// An exception from [body] rolls the transaction back.
   static Future<T> inContext<T>(int service, Future<T> Function() body) => _inTransaction('$service', body);
 
-  static Future<T> _inTransaction<T>(String value, Future<T> Function() body) async {
-    final session = DbSession._lazy(await pool(), value);
+  /// Runs [body] in ONE transaction with the app tenant [tenant] set LOCALLY (`ignis.tenant`, `set_config(..., true)`):
+  /// tables with @Entity(tenantColumn:) show and accept only that tenant's rows. The service context is empty, so
+  /// `service` tables show 0 rows. Nested with the same tenant — the same transaction; with another tenant, or inside
+  /// a request/system transaction — [StateError]: one transaction never mixes contexts. [asSystem] inside it sees all.
+  static Future<T> asTenant<T>(String tenant, Future<T> Function() body) {
+    if (tenant.isEmpty) throw ArgumentError.value(tenant, 'tenant', 'must not be empty');
+    final z = Zone.current[_key];
+    if (z is DbSession && !z._closed) {
+      if (z._tenant == tenant) return Future.sync(body);
+      throw StateError('Db.asTenant($tenant) inside another transaction context '
+          '(${z._tenant != null ? 'tenant ${z._tenant}' : 'request/system'}); start it outside');
+    }
+    return _inTransaction('', body, tenant);
+  }
+
+  static Future<T> _inTransaction<T>(String value, Future<T> Function() body, [String? tenant]) async {
+    final session = DbSession._lazy(await pool(), value, tenant);
     final T result;
     try {
       result = await runZoned(body, zoneValues: {_key: session});

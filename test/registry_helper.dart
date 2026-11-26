@@ -47,6 +47,7 @@ EntityMeta testEntity(
       table: entity.table,
       pk: entity.pk,
       unique: entity.unique,
+      tenantColumn: entity.tenantColumn,
       cached: cached,
       ttl: ttl,
       ctor: ctor,

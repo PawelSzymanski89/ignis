@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 — Unreleased
+
+### Added
+
+- RLS by an app tenant column: `@Entity(..., tenantColumn: 'tenant')` (text or int) and `Db.asTenant(tenant, body)`
+  (`ignis.tenant`, local to one transaction). No tenant = 0 rows; only the system context sees all; `Schema.checkRls`
+  covers the new tables. `EntityMeta` gains an optional `tenantColumn` (regenerate the registry). Entities without it
+  are unchanged.
+
 ## 0.4.4 — 2026-11-26
 
 ### Fixed

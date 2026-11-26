@@ -32,6 +32,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       cached: false,
       ttl: 0,
       unique: const [],
+      tenantColumn: null,
       ctor: i0.AuditLogEntry.new,
       fields: [
         ig.FieldMeta(
@@ -117,6 +118,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['domain'],
       ],
+      tenantColumn: null,
       ctor: i3.Domain.new,
       fields: [
         ig.FieldMeta(
@@ -167,6 +169,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['key'],
       ],
+      tenantColumn: null,
       ctor: i2.FileRecord.new,
       fields: [
         ig.FieldMeta(
@@ -259,6 +262,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['path', 'service'],
       ],
+      tenantColumn: null,
       ctor: i2.Folder.new,
       fields: [
         ig.FieldMeta(
@@ -321,6 +325,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       cached: false,
       ttl: 0,
       unique: const [],
+      tenantColumn: null,
       ctor: i1.Package.new,
       fields: [
         ig.FieldMeta(
@@ -364,6 +369,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['package_id', 'permission'],
       ],
+      tenantColumn: null,
       ctor: i1.PackagePermission.new,
       fields: [
         ig.FieldMeta(
@@ -398,6 +404,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       cached: false,
       ttl: 0,
       unique: const [],
+      tenantColumn: null,
       ctor: i1.Permission.new,
       fields: [
         ig.FieldMeta(
@@ -427,6 +434,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['slug'],
       ],
+      tenantColumn: null,
       ctor: i3.Service.new,
       fields: [
         ig.FieldMeta(
@@ -489,6 +497,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       cached: false,
       ttl: 0,
       unique: const [],
+      tenantColumn: null,
       ctor: i1.Setting.new,
       fields: [
         ig.FieldMeta(
@@ -530,6 +539,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       cached: false,
       ttl: 0,
       unique: const [],
+      tenantColumn: null,
       ctor: i1.User.new,
       fields: [
         ig.FieldMeta(
@@ -601,6 +611,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['username', 'package_id'],
       ],
+      tenantColumn: null,
       ctor: i1.UserPackage.new,
       fields: [
         ig.FieldMeta(
@@ -637,6 +648,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['username', 'permission'],
       ],
+      tenantColumn: null,
       ctor: i1.UserPermission.new,
       fields: [
         ig.FieldMeta(
@@ -1439,6 +1451,6 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       'lib/pages/settings_page.dart',
       'lib/src/builder/registry_builder.dart',
     ],
-    sum: '89af5713547da502dd137d580162a3e0a25f136494ab1f0982538dd45c16e82c',
+    sum: 'f127297913ef7504607daaac0e4da9d4f1e1f1cae9f1b8ae85264f1e094cf24e',
   ),
 );

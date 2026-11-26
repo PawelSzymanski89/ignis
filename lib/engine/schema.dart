@@ -99,6 +99,9 @@ class Schema {
 
   static const _ctx = "current_setting('ignis.service', true)";
 
+  /// App tenant of [Entity.tenantColumn] tables ([Db.asTenant]); NULL when unset or reset ('' after a local set).
+  static const _tenant = "nullif(current_setting('ignis.tenant', true), '')";
+
   /// Context as a number or NULL — CASE, because `'*'::int` would break the query.
   static const _service = "CASE WHEN $_ctx ~ '^[0-9]+\$' THEN $_ctx::int END";
 
@@ -115,6 +118,12 @@ class Schema {
   /// `service` column — they belong to a service through the account and the package.
   static (String, String)? _policy(EntityMeta m) {
     final t = '"${m.table}"';
+    if (m.tenantColumn case final col?) {
+      if (!m.fields.any((f) => f.name == col)) throw StateError('${m.table}: tenantColumn "$col" is not a field');
+      // ::text — one GUC for text and int columns; NULL (no tenant) never matches
+      final own = '"$col"::text = $_tenant';
+      return (own, own);
+    }
     const own = 'service = $_service';
     final account = 'EXISTS (SELECT 1 FROM users u WHERE u.username = $t.username AND u.service = $_service)';
     final package = 'EXISTS (SELECT 1 FROM packages p WHERE p.id = $t.package_id AND p.service = $_service)';
@@ -140,7 +149,8 @@ class Schema {
   static (String, String, String)? _conditions(EntityMeta m) {
     final fieldsCount = _policy(m);
     if (fieldsCount == null) return null;
-    const full = "$_ctx IN ('*', '0')";
+    // tenant tables: only the system context sees all ('0' is the platform panel of services, not of app tenants)
+    final full = m.tenantColumn != null ? "$_ctx = '*'" : "$_ctx IN ('*', '0')";
     final (read, stored) = ('$full OR ${fieldsCount.$1}', '$full OR ${fieldsCount.$2}');
     return (read, stored, 'ignis:${sha256.convert(utf8.encode('$read\n$stored'))}');
   }

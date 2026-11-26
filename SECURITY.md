@@ -88,6 +88,18 @@ address, the `staff` realm, the account belonging to *this* service, and the per
 - Setup failures are not swallowed: `Schema.checkRls` verifies `ENABLE`+`FORCE` and the full policy
   set (with no foreign policies) in every `IGNIS_SCHEMA` mode; a mismatch aborts start-up.
 
+### RLS by an app tenant column
+
+`@Entity('notes', tenantColumn: 'tenant')` puts a table under RLS by the app's own tenant (a text or int column)
+instead of `service`. A row is visible and writable only when the column equals `ignis.tenant`, set by
+`Db.asTenant(tenant, body)` locally in one transaction (`set_config(..., true)`), or in the system context
+(`Db.asSystem`, `'*'`). Fail-closed like the rest: no tenant = 0 rows, and the platform context (`'0'`) does not
+open these tables. Writes are checked too (`WITH CHECK`): an INSERT or UPDATE with another tenant's value is
+rejected. `Db.asTenant` refuses to nest a different tenant, or to start inside a request/system transaction — one
+transaction never mixes contexts; `Db.asSystem` inside it raises to `'*'` and returns. The table gets `ENABLE` +
+`FORCE` and the same two fingerprinted policies, so `Schema.checkRls` covers it. Entities without `tenantColumn`
+behave exactly as before.
+
 ### Runtime database role
 
 The role that owns the tables can `ALTER`/`DROP` their policies. Split it: the **owner** only migrates
