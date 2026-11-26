@@ -14,7 +14,15 @@ void check(String description, bool condition) {
 }
 
 Future<void> main() async {
-  if (Platform.environment['IGNIS_TEST_CHILD'] == '1') return _child();
+  if (Platform.environment['IGNIS_TEST_CHILD'] == '1') {
+    try {
+      await _child();
+    } catch (e) {
+      print(e);
+      exit(1); // pending retry timers would keep a failed child alive
+    }
+    return;
+  }
   final server = await _fakeRedis();
   final r = await Process.run(Platform.resolvedExecutable, ['run', Platform.script.toFilePath()], environment: {
     'IGNIS_TEST_CHILD': '1',
@@ -25,8 +33,9 @@ Future<void> main() async {
   stdout.write(r.stdout);
   final err = '${r.stderr}';
   check('child passed', r.exitCode == 0);
-  check('the failure is logged to stderr, once for two failures in a row',
+  check('the failure is logged to stderr, once for a burst of failures',
       'cache invalidation failed'.allMatches(err).length == 1);
+  check('keys over the retry queue limit are logged', err.contains('invalidation retry queue full'));
 }
 
 Future<void> _child() async {
@@ -46,21 +55,51 @@ Future<void> _child() async {
   }
   check('a failed invalidation still reaches the caller', e1 != null && e2 != null);
   check('the stale entry is there while Redis refuses DEL', await Redis.get('perm:alice') != null);
+
+  // IGNIS-051.2: 1000 failed invalidations of one key = one queue entry, one loop — not 1000 loops each sending DEL
+  await Redis.setEx('perm:carol', '{"a":["x"],"d":[],"p":[]}', 900);
+  for (var i = 0; i < 1000; i++) {
+    try {
+      await Permissions.invalidateMany(['carol']);
+    } catch (_) {}
+  }
+  await Redis.cmd(['TESTRESET']);
+  await Future.delayed(const Duration(milliseconds: 3500));
+  final dels = await Redis.cmd(['TESTCOUNT']) as int;
+  check('1000 failed invalidations of one key → a handful of retry DELs in 3.5 s (got $dels)', dels <= 15);
+
+  // distinct keys: the queue is bounded (limit 10000)
+  final many = [for (var i = 0; i < 12000; i++) 'u$i'];
+  try {
+    await Permissions.invalidateMany(many);
+  } catch (_) {}
+  await Redis.cmd(['TESTRESET']);
+  await Future.delayed(const Duration(milliseconds: 3500));
+  final distinct = await Redis.cmd(['TESTDISTINCT']) as int;
+  check('the retry queue holds at most 10000 keys (retried $distinct distinct)', distinct > 0 && distinct <= 10000);
+
   await Redis.cmd(['TESTUP']);
-  final until = DateTime.now().add(const Duration(seconds: 6));
+  final until = DateTime.now().add(const Duration(seconds: 40));
   while (DateTime.now().isBefore(until) &&
-      (await Redis.get('perm:alice') != null || await Redis.get('perm:bob') != null)) {
+      (await Redis.get('perm:alice') != null ||
+          await Redis.get('perm:bob') != null ||
+          await Redis.get('perm:carol') != null)) {
     await Future.delayed(const Duration(milliseconds: 200));
   }
   check('once Redis takes DEL again, the retry drops the stale entries',
-      await Redis.get('perm:alice') == null && await Redis.get('perm:bob') == null);
+      await Redis.get('perm:alice') == null &&
+          await Redis.get('perm:bob') == null &&
+          await Redis.get('perm:carol') == null);
   exit(0); // the retry loops are done; nothing else to wait for
 }
 
-/// GET/SET/DEL over RESP; TESTDOWN makes DEL answer an error until TESTUP.
+/// GET/SET/DEL over RESP; TESTDOWN makes DEL answer an error until TESTUP; TESTCOUNT / TESTDISTINCT = DEL commands
+/// / distinct DEL'd keys since TESTRESET.
 Future<ServerSocket> _fakeRedis() async {
   final data = <String, String>{};
   var down = false;
+  var dels = 0; // DEL commands since TESTRESET
+  final delKeys = <String>{};
   final s = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
   s.listen((c) {
     c.done.catchError((_) {}); // the child exits without closing its connection
@@ -79,6 +118,14 @@ Future<ServerSocket> _fakeRedis() async {
           case 'TESTUP':
             down = false;
             c.write('+OK\r\n');
+          case 'TESTRESET':
+            dels = 0;
+            delKeys.clear();
+            c.write('+OK\r\n');
+          case 'TESTCOUNT':
+            c.write(':$dels\r\n');
+          case 'TESTDISTINCT':
+            c.write(':${delKeys.length}\r\n');
           case 'SET':
             data[a[1]] = a[2];
             c.write('+OK\r\n');
@@ -86,6 +133,8 @@ Future<ServerSocket> _fakeRedis() async {
             final v = data[a[1]];
             c.write(v == null ? '\$-1\r\n' : '\$${utf8.encode(v).length}\r\n$v\r\n');
           case 'DEL':
+            dels++;
+            delKeys.addAll(a.skip(1));
             if (down) {
               c.write('-ERR down\r\n');
             } else {

@@ -2,6 +2,14 @@
 
 ## 0.5.1 — Unreleased
 
+### Fixed
+
+- Permission-cache invalidation retry: a failed `DEL` no longer starts its own background loop (every 2 s, up to
+  900 s) per call — failed keys go to one shared, deduplicated queue (at most 10000 keys, overflow logged) worked by
+  a single loop with exponential backoff + jitter (1 s → 30 s); a key is dropped, with a log line, once the cache TTL
+  (900 s) since its last failure has passed. `Permissions.retryEvery` is now the initial backoff (1 s);
+  `retryMax` / `retryMaxKeys` added.
+
 ### Documentation
 
 - `Redis.runExclusive` / `Ignis.every`: the docstring sits on `runExclusive` again (it was above `lockNode`)
