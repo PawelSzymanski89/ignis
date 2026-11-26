@@ -4,6 +4,8 @@
 
 ### Documentation
 
+- README env table: `IGNIS_REQUIRE_PLATFORM_2FA`, `IGNIS_REQUIRE_STAFF_2FA`, `IGNIS_ALLOW_STALE_REGISTRY` added;
+  the `IGNIS_NODE` row describes `Redis.lockNode` (random per-process lock owner when unset).
 - SECURITY.md: enabling TOTP describes what the account page shows (secret as text + `otpauth://` link, no QR);
   the runtime-role section spells out RLS vs runtime role vs parameterised queries and recommends
   `IGNIS_SCHEMA=validate` + `IGNIS_REQUIRE_RUNTIME_ROLE=1` on serving nodes with a separate migration step.

@@ -816,7 +816,10 @@ All configuration comes from environment variables read by the engine. The requi
 | `IGNIS_REDIS_PASS` | — | Redis password |
 | `IGNIS_REDIS_TLS` | — | `1` = TLS to Redis, verified against system CAs |
 | `IGNIS_PORT` | `8080` | HTTP listen port |
-| `IGNIS_NODE` | `node` | node name in the start-up log, Redis locks, `/health` and the panel footer (`unknown` there when unset); must be unique per node (warning when unset) — see [Running a cluster](#-running-a-cluster) |
+| `IGNIS_NODE` | — | node name in the start-up log (`node` when unset), `/health` and the panel footer (`unknown` there when unset); must be unique per node (warning when unset) — see [Running a cluster](#-running-a-cluster). Also the owner prefix of Redis lock values (`Redis.lockNode`); when unset each process uses a random `hostname-pid-random` instead, so nodes never release each other's locks |
+| `IGNIS_REQUIRE_PLATFORM_2FA` | on | platform accounts (service 0) without TOTP get a restricted session: only `/admin/account` (set up the second factor, change the password) and sign-out, every other page redirects there. **On by default since 0.5.0** — enable TOTP on platform accounts before upgrading; `0` turns it off |
+| `IGNIS_REQUIRE_STAFF_2FA` | unset | `1` = the same restriction for every staff account in every service |
+| `IGNIS_ALLOW_STALE_REGISTRY` | unset | `1` = a JIT start with a stale `lib/ignis_registry.g.dart` (lib/ changed since the last `build_runner build`) only warns instead of stopping the node |
 | `IGNIS_REQUIRE_RUNTIME_ROLE` | unset | `1` = refuse to start (before any DDL) when the database role owns engine tables (serving nodes on a runtime role; `tool/runtime_role.sql`); any other non-empty value refuses to start |
 | `IGNIS_SCHEMA` | `update` | `update` creates tables and columns, `validate` and `none` only check. Serving nodes: `validate` on a runtime role without table ownership ([SECURITY.md](SECURITY.md#runtime-database-role)) |
 | `IGNIS_ASSETS` | `web/assets` | directory with the theme's static files (`/assets/…`) |
