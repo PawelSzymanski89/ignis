@@ -4,6 +4,9 @@
 
 ### Added
 
+- Background jobs: `Redis.runExclusive(name, ttl, body)` — `lock:<name>` with a per-run token, keep-alive every
+  ttl/3, owner-only release; `body` gets `stillOwner()` (false once the lock is lost). `Ignis.every(name, interval, ttl,
+  body)` runs it on a timer (errors logged, no overlap); `Ignis.stopJobs()` runs at node shutdown.
 - RLS by an app tenant column: `@Entity(..., tenantColumn: 'tenant')` (text or int) and `Db.asTenant(tenant, body)`
   (`ignis.tenant`, local to one transaction). No tenant = 0 rows; only the system context sees all; `Schema.checkRls`
   covers the new tables. `EntityMeta` gains an optional `tenantColumn` (regenerate the registry). Entities without it

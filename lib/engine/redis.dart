@@ -17,6 +17,8 @@ import 'dart:io';
 
 import 'package:redis/redis.dart';
 
+import 'crypto.dart';
+
 class Redis {
   static RedisConnection? _rc;
   static Command? _cmd;
@@ -125,6 +127,41 @@ class Redis {
             value,
             seconds.toString(),
           ])) == 1;
+
+  /// Runs [body] on at most one node at a time under the lock `lock:[name]`. Returns false (body not run) when
+  /// another run holds it. The lock is taken with a per-run token `node:<random>` and kept alive every ttl/3
+  /// (compare-and-expire); when the keep-alive finds the lock gone or taken over (or Redis fails), `stillOwner()`
+  /// turns false for good and [body] should stop at its next check. Released in finally only if still ours.
+  /// [body] errors propagate after the release.
+  static Future<bool> runExclusive(
+      String name, Duration ttl, Future<void> Function(bool Function() stillOwner) body) async {
+    final key = 'lock:$name';
+    final token = '${Platform.environment['IGNIS_NODE'] ?? 'node'}:${Crypto.randomToken(8)}';
+    final seconds = ttl.inSeconds < 1 ? 1 : ttl.inSeconds;
+    if (!await setNxEx(key, token, seconds)) return false;
+    var owner = true;
+    var beating = false;
+    final beat = Timer.periodic(Duration(milliseconds: seconds * 1000 ~/ 3), (_) async {
+      if (!owner || beating) return;
+      beating = true;
+      try {
+        if (!await expireIfEqual(key, token, seconds)) owner = false;
+      } catch (_) {
+        owner = false; // ownership unknown — fail safe, the TTL may run out meanwhile
+      } finally {
+        beating = false;
+      }
+    });
+    try {
+      await body(() => owner);
+    } finally {
+      beat.cancel();
+      try {
+        await delIfEqual(key, token);
+      } catch (_) {} // the TTL frees it anyway
+    }
+    return true;
+  }
 
   /// DEL key (e.g. sign-out).
   static Future<void> del(String key) => cmd(['DEL', key]);

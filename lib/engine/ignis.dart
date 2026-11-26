@@ -14,6 +14,7 @@
 //  uncompressed (CSRF token next to echoed input = BREACH) — gzip for them is the proxy's decision.
 // ============================================================================
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -60,6 +61,37 @@ class Ignis {
 
   /// Where "Back" on the error page leads (an app with its own panel gives its dashboard).
   static String errorBackUrl = '/admin';
+
+  static final List<Timer> _jobs = [];
+
+  /// Background job: every [interval] runs [body] under [Redis.runExclusive] (one node at a time cluster-wide,
+  /// no overlap on this node). Errors are logged and the timer keeps going. Timers stop at node shutdown
+  /// ([stopJobs]). Returns the timer (cancel to stop one job).
+  static Timer every(String name, Duration interval, Duration ttl,
+      Future<void> Function(bool Function() stillOwner) body) {
+    var running = false;
+    final t = Timer.periodic(interval, (_) async {
+      if (running) return;
+      running = true;
+      try {
+        await Redis.runExclusive(name, ttl, body);
+      } catch (e) {
+        stderr.writeln('Ignis job $name — $e');
+      } finally {
+        running = false;
+      }
+    });
+    _jobs.add(t);
+    return t;
+  }
+
+  /// Cancels every [every] timer (called on shutdown before the locks are released).
+  static void stopJobs() {
+    for (final t in _jobs) {
+      t.cancel();
+    }
+    _jobs.clear();
+  }
 
   /// Why the node must not start with this `IGNIS_TRUSTED_PROXIES`, or null. Unset is refused: behind a
   /// proxy that nobody declared, every client has the proxy address — sign-in limits lock everyone out
@@ -225,6 +257,7 @@ class Ignis {
       stdout.writeln('Ignis: $s — finishing ${shutdown.inFlight} requests (20 s limit)');
       final clean = await shutdown.close(server);
       if (!clean) stderr.writeln('Ignis: requests aborted after 20 s');
+      stopJobs();
       try {
         await Redis.releaseLocks(node);
       } catch (e) {
