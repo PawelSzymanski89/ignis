@@ -746,7 +746,8 @@ static String errorDescription(int code) => switch (code) {
     res.headers.contentType = ContentType.html;
     res.headers
       ..set('Cache-Control', 'no-store')
-      ..set('Content-Security-Policy', csp);
+      ..set('Content-Security-Policy', csp)
+      ..set('Cross-Origin-Resource-Policy', 'same-origin');
     securityHeaders(res.headers);
     final t = ErrorTexts.t(language);
     final title = t('ignis.error.$kind.title');

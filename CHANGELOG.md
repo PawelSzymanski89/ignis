@@ -13,6 +13,9 @@
 - Multipart `Content-Disposition` parameters are matched as tokens (at the start or after `;`), with `\"` escapes
   unescaped. Before, `name=` also matched the tail of `filename="…"`, so a part sending `filename` before `name`
   got the file name as its field name (IGNIS-052.3).
+- HTML responses (pages and the error page) send `Cross-Origin-Resource-Policy: same-origin`, so another origin
+  cannot load a panel page as a subresource. A page may override it with its own header; `/files`, static assets
+  and API/JSON responses do not get it (IGNIS-052.4).
 
 ## 0.5.1 — 2026-11-26
 

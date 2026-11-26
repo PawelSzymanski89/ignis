@@ -39,6 +39,10 @@ Future<void> main() async {
   }
   check('strona błędu: CSP w nagłówku z frame-ancestors',
       (await headerValues('/blad')).value('content-security-policy')!.contains("frame-ancestors 'self'"));
+  check('IGNIS-052.4: strona błędu HTML — CORP same-origin',
+      (await headerValues('/blad')).value('cross-origin-resource-policy') == 'same-origin');
+  check('IGNIS-052.4: zasób statyczny bez CORP',
+      (await headerValues('/assets/nie-ma.css')).value('cross-origin-resource-policy') == null);
   k.close();
   await srv.close();
 
@@ -51,6 +55,8 @@ Future<void> main() async {
   check('HTML: no-store, CSP i Vary: HX-Request',
       html['cache-control']?.single == 'no-store' && html['content-security-policy']?.single == Engine.csp &&
           html['vary']!.contains('HX-Request, X-Ignis-Live'));
+  check('IGNIS-052.4: HTML — Cross-Origin-Resource-Policy same-origin',
+      html['cross-origin-resource-policy']?.single == 'same-origin');
   String? Function(String) z(Map<String, String> m) => (n) => m[n];
   check('FIX-48: X-Ignis-Live i HX-Request → sam fragment, zwykłe wejście → pełny layout',
       Engine.layoutFor(z({'X-Ignis-Live': '1'})) == '_fragment.html' &&
@@ -65,7 +71,8 @@ Future<void> main() async {
   html.clear();
   Engine.htmlHeaders(hh, js);
   check('JSON: domyślnie no-store, bez CSP i Vary',
-      html['cache-control']?.single == 'no-store' && html['content-security-policy'] == null && html['vary'] == null);
+      html['cache-control']?.single == 'no-store' && html['content-security-policy'] == null && html['vary'] == null &&
+          html['cross-origin-resource-policy'] == null);
 }
 
 class _Headers implements HttpHeaders {
