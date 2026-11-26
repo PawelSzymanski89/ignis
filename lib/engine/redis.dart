@@ -133,10 +133,28 @@ class Redis {
   /// (compare-and-expire); when the keep-alive finds the lock gone or taken over (or Redis fails), `stillOwner()`
   /// turns false for good and [body] should stop at its next check. Released in finally only if still ours.
   /// [body] errors propagate after the release.
+  /// Owner prefix of this process's lock values: `IGNIS_NODE`, or — when it is unset/empty — a random id generated
+  /// once per process (`hostname-pid-random`), so nodes without `IGNIS_NODE` never share the prefix `node` and
+  /// [releaseLocks] of one never deletes another's locks. Only for lock ownership; the displayed node name is
+  /// still `IGNIS_NODE`.
+  static final String lockNode = _lockNode();
+  static String _lockNode() {
+    final env = Platform.environment['IGNIS_NODE'] ?? '';
+    if (env.isNotEmpty) return env;
+    String host;
+    try {
+      host = Platform.localHostname;
+    } catch (_) {
+      host = 'host';
+    }
+    // no ':' — it separates the prefix from the run token
+    return '${host.replaceAll(':', '_')}-$pid-${Crypto.randomToken(4)}';
+  }
+
   static Future<bool> runExclusive(
-      String name, Duration ttl, Future<void> Function(bool Function() stillOwner) body) async {
+      String name, Duration ttl, Future<void> Function(bool Function() stillOwner) body, {Duration? maxRun}) async {
     final key = 'lock:$name';
-    final token = '${Platform.environment['IGNIS_NODE'] ?? 'node'}:${Crypto.randomToken(8)}';
+    final token = '$lockNode:${Crypto.randomToken(8)}';
     final seconds = ttl.inSeconds < 1 ? 1 : ttl.inSeconds;
     if (!await setNxEx(key, token, seconds)) return false;
     var owner = true;
@@ -160,6 +178,13 @@ class Redis {
         beating = false;
       }
     });
+    final limit = maxRun == null
+        ? null
+        : Timer(maxRun, () {
+            if (!owner) return;
+            owner = false;
+            stderr.writeln('Ignis job $name — exceeded maxRun $maxRun; no longer owner, the lock expires after $ttl');
+          });
     final done = Completer<void>();
     final run = _Run(token, () => owner = false, done.future);
     _runs.add(run);
@@ -167,6 +192,7 @@ class Redis {
       await body(() => owner);
     } finally {
       beat.cancel();
+      limit?.cancel();
       _confirms.remove(name);
       _runs.remove(run);
       try {

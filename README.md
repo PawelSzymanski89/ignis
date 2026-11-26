@@ -450,7 +450,7 @@ again.
 
 **Must be unique:**
 
-- `IGNIS_NODE` — the node name in the start-up log, the owner value of background-job locks in Redis
+- `IGNIS_NODE` — the node name in the start-up log, the owner value of background-job locks in Redis (unset: a random per-process id is used for locks)
   (`lock:audit_log`), the `"node"` field of `/health` (and its `health:<node>` key) and the panel footer. It is **not** stored in the
   audit log. On SIGTERM a node deletes the `lock:*` keys that carry its name, so two nodes with the same name
   release each other's locks. Unset, it is `node` for locks and `unknown` in `/health` and the panel, and the

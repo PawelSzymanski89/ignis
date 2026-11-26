@@ -117,11 +117,67 @@ Future<void> main() async {
   });
   await Future.delayed(const Duration(milliseconds: 100));
   final still = await Redis.abandonExclusive(wait: const Duration(milliseconds: 200));
-  await Redis.releaseLocks(Platform.environment['IGNIS_NODE'] ?? 'node', keep: still);
+  await Redis.releaseLocks(Redis.lockNode, keep: still);
   check('abandonExclusive: trwający przebieg zwrócony, releaseLocks zostawia jego blokadę',
       still.length == 1 && await Redis.get(k) == still.first);
   await slow;
   check('po zakończeniu przebieg zwalnia blokadę sam', await Redis.get(k) == null);
+
+  // IGNIS-050.11 (a): maxRun — after it the run is no longer owner and the keep-alive stops extending the lock
+  // (it expires after ttl), even though the body ignores stillOwner and keeps going.
+  bool? ownerEarly, ownerAfterMax, confirmAfterMax;
+  String? heldAfterTtl;
+  await Redis.runExclusive(name, const Duration(seconds: 2), maxRun: const Duration(milliseconds: 800), (owner) async {
+    await Future.delayed(const Duration(milliseconds: 300));
+    ownerEarly = owner();
+    await Future.delayed(const Duration(milliseconds: 900));
+    ownerAfterMax = owner();
+    confirmAfterMax = await Redis.confirmExclusive(name);
+    await Future.delayed(const Duration(milliseconds: 2500)); // > ttl since the last extension
+    heldAfterTtl = await Redis.get(k);
+  });
+  check('maxRun: przed limitem owner true', ownerEarly == true);
+  check('maxRun: po limicie stillOwner false i confirmExclusive false',
+      ownerAfterMax == false && confirmAfterMax == false);
+  check('maxRun: heartbeat nie przedłuża — blokada wygasa po ttl', heldAfterTtl == null);
+  // maxRun via Ignis.every
+  bool? everyOwnerAfterMax;
+  final everyDone = Completer<void>();
+  final t = Ignis.every(name, const Duration(milliseconds: 100), const Duration(seconds: 5),
+      maxRun: const Duration(milliseconds: 300), (owner) async {
+    if (everyDone.isCompleted) return;
+    await Future.delayed(const Duration(milliseconds: 600));
+    everyOwnerAfterMax = owner();
+    everyDone.complete();
+  });
+  await everyDone.future;
+  t.cancel();
+  check('every(maxRun): po limicie stillOwner false', everyOwnerAfterMax == false);
+  await Future.delayed(const Duration(milliseconds: 300));
+  await Redis.del(k);
+
+  // IGNIS-050.11 (b): without IGNIS_NODE the lock token prefix is a per-process id, not the shared 'node' —
+  // releaseLocks of another node without IGNIS_NODE ('node') must not delete our lock.
+  final envNode = Platform.environment['IGNIS_NODE'] ?? '';
+  check('lockNode: ustawiony, niepusty', Redis.lockNode.isNotEmpty && Redis.lockNode == Redis.lockNode);
+  if (envNode.isEmpty) {
+    check('lockNode: bez IGNIS_NODE różny od "node" (${Redis.lockNode})', Redis.lockNode != 'node');
+    String? held, afterOther;
+    await Redis.runExclusive(name, const Duration(seconds: 10), (_) async {
+      held = await Redis.get(k);
+      await Redis.releaseLocks('node'); // another node without IGNIS_NODE shutting down
+      afterOther = await Redis.get(k);
+      await Redis.releaseLocks(Redis.lockNode, keep: [held!]);
+    });
+    check('token blokady z prefiksem lockNode', held != null && held!.startsWith('${Redis.lockNode}:'));
+    check('releaseLocks("node") innego węzła nie kasuje naszej blokady', afterOther == held);
+    // our own releaseLocks (shutdown) does remove it
+    await Redis.set(k, '${Redis.lockNode}:xyz');
+    await Redis.releaseLocks(Redis.lockNode);
+    check('releaseLocks(lockNode) kasuje własną blokadę', await Redis.get(k) == null);
+  } else {
+    check('lockNode == IGNIS_NODE gdy ustawione', Redis.lockNode == envNode);
+  }
 
   await Redis.del(k);
   if (_bledy > 0) {

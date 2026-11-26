@@ -66,15 +66,15 @@ class Ignis {
 
   /// Background job: every [interval] runs [body] under [Redis.runExclusive] (one node at a time cluster-wide,
   /// no overlap on this node). Errors are logged and the timer keeps going. Timers stop at node shutdown
-  /// ([stopJobs]). Returns the timer (cancel to stop one job).
+  /// ([stopJobs]). [maxRun] — see [Redis.runExclusive]. Returns the timer (cancel to stop one job).
   static Timer every(String name, Duration interval, Duration ttl,
-      Future<void> Function(bool Function() stillOwner) body) {
+      Future<void> Function(bool Function() stillOwner) body, {Duration? maxRun}) {
     var running = false;
     final t = Timer.periodic(interval, (_) async {
       if (running) return;
       running = true;
       try {
-        await Redis.runExclusive(name, ttl, body);
+        await Redis.runExclusive(name, ttl, body, maxRun: maxRun);
       } catch (e) {
         stderr.writeln('Ignis job $name — $e');
       } finally {
@@ -270,7 +270,7 @@ class Ignis {
       // (TTL frees them), or another node would run the same job alongside
       final stillRunning = await Redis.abandonExclusive();
       try {
-        await Redis.releaseLocks(node, keep: stillRunning);
+        await Redis.releaseLocks(Redis.lockNode, keep: stillRunning);
       } catch (e) {
         stderr.writeln('Ignis: releasing locks — $e');
       }

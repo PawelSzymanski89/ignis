@@ -4,6 +4,13 @@
 
 ### Added
 
+- `Redis.runExclusive(..., maxRun:)` / `Ignis.every(..., maxRun:)` (default null = no limit): after `maxRun` the
+  run's `stillOwner()` turns false and the keep-alive stops extending the lock (it expires after `ttl`), with a
+  warning — a hung body no longer holds a job forever.
+- `Redis.lockNode`: the owner prefix of lock values — `IGNIS_NODE`, or, when unset/empty, a random per-process id
+  (`hostname-pid-random`). Nodes without `IGNIS_NODE` no longer all use the prefix `node`, so `releaseLocks` on one
+  node's shutdown no longer deletes the locks of the others. Used by `runExclusive`, the audit-log lock and shutdown;
+  the displayed node name (log, `/health`, panel) is unchanged.
 - Test `test/seed_many_nodes_pg_test.dart`: the real `Ignis.start(seed:)` on two processes — seed callbacks never
   overlap, every node runs its own, the HTTP port opens only after the start-up lock; a throwing seed exits the
   node with an error and the other node starts. README (Schema with many nodes): the seed is not exactly-once.
