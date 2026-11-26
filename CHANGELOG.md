@@ -7,6 +7,9 @@
 - `IGNIS_UPLOAD_BUDGET_MB`, `IGNIS_TIMEOUT_S`, `IGNIS_SHORT_TIMEOUT_S`, `IGNIS_BCRYPT_THREADS` and `IGNIS_S3_TIMEOUT_S`
   are validated in `Ignis.start` by one `Engine.parseEnvInt` (trimmed; unset or blank → default; anything but an
   integer ≥ 1 stops the node). Before, a typo such as `12O` silently fell back to the default (IGNIS-052.1).
+- `/files` sends `Content-Length` with the object length reported by S3 (the same as `files.size`, written at
+  upload) and fails the stream when it ends with a different byte count, so a transfer cut mid-way drops the
+  connection instead of a truncated body under 200 that a browser or CDN may keep for 24 h (IGNIS-052.2).
 
 ## 0.5.1 — 2026-11-26
 
