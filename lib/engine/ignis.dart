@@ -218,6 +218,12 @@ class Ignis {
     }
     Engine.maxInFlight = Engine.parseMaxInFlight(env['IGNIS_MAX_INFLIGHT']);
     Engine.apiBodyBudget = Engine.parseApiBodyBudget(env['IGNIS_API_BODY_BUDGET_MB']);
+    final envInt = Engine.parseEnvInt;
+    Engine.multipartBudget = envInt('IGNIS_UPLOAD_BUDGET_MB', env['IGNIS_UPLOAD_BUDGET_MB'], 64) * 1024 * 1024;
+    Engine.requestDeadline = Duration(seconds: envInt('IGNIS_TIMEOUT_S', env['IGNIS_TIMEOUT_S'], 120));
+    Engine.shortDeadline = Duration(seconds: envInt('IGNIS_SHORT_TIMEOUT_S', env['IGNIS_SHORT_TIMEOUT_S'], 15));
+    Db.bcryptWorkers = envInt('IGNIS_BCRYPT_THREADS', env['IGNIS_BCRYPT_THREADS'], Platform.numberOfProcessors);
+    Storage.transferDeadline = Duration(seconds: envInt('IGNIS_S3_TIMEOUT_S', env['IGNIS_S3_TIMEOUT_S'], 60));
     final proxiesError = trustedProxiesError(env);
     if (proxiesError != null) throw StateError(proxiesError);
     backendTlsWarnings(env).forEach(stdout.writeln);

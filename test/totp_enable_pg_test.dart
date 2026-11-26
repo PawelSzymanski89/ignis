@@ -66,7 +66,7 @@ Future<void> main() async {
   // PERF-A-2: nazwy pakietów w cache perm: (bez dwóch zapytań na każde wejście w panel)
   final perms = await Db.asSystem(() => Permissions.forUser(login));
   check('Permissions.dla niesie nazwy pakietów', perms.packages.contains('Root'));
-  check('i trzyma je w perm:', (await Redis.get('perm:$login'))!.contains('"p":'));
+  check('i trzyma je w perm:', (await Redis.get('perm:{$login}'))!.contains('"p":'));
   final (_, page, _) = await post({'triggerAction': 'brak'});
   check('podpis pod loginem z cache (Root)', page.contains('Root'));
 

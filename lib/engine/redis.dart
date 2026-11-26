@@ -161,6 +161,12 @@ class Redis {
   /// - **Only the owner releases or extends.** Renewal is compare-and-expire ([expireIfEqual]) and the release
   ///   in finally is compare-and-delete ([delIfEqual]) with this run's token, so a run never touches a lock
   ///   another run took after its lease expired.
+  /// - **At-least-once, not exactly-once; no fencing token.** After a lost lease two runs can overlap, and a
+  ///   stage the old run started before the pause still completes. Give every effect a deterministic id
+  ///   (idempotency key, an execution ledger row with a unique key, or dedup at read — e.g. ReplacingMergeTree
+  ///   + FINAL) and reconcile instead of relying on the lock. A fencing token is not provided: it only helps
+  ///   when the target checks it atomically with the write, and the typical targets (push providers, mail,
+  ///   HTTP APIs) cannot.
   /// - [body] errors propagate after the release.
   ///
   /// ```dart

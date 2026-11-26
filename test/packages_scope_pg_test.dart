@@ -84,8 +84,8 @@ Future<void> main() async {
   await Db.asSystem(() => Permissions.forUser('zkklient'));
   await task('POST', '/admin/permissions',
       {'triggerAction': 'package_save', 'id': 'zk-klient', 'name': 'ZkKliencki', 'perm_dashboard.view': 'on'});
-  check('zmiana pakietu czyści cache posiadacza…', await Redis.get('perm:zkklient') == null);
-  check('…a nie wszystkich kont', await Redis.get('perm:zkobcy') != null);
+  check('zmiana pakietu czyści cache posiadacza…', await Redis.get('perm:{zkklient}') == null);
+  check('…a nie wszystkich kont', await Redis.get('perm:{zkobcy}') != null);
 
   await Sessions.destroyAll('zkroot');
   client.close(force: true);

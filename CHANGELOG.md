@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.5.2 — 2026-11-26
+
+### Fixed
+
+- `IGNIS_UPLOAD_BUDGET_MB`, `IGNIS_TIMEOUT_S`, `IGNIS_SHORT_TIMEOUT_S`, `IGNIS_BCRYPT_THREADS` and `IGNIS_S3_TIMEOUT_S`
+  are validated in `Ignis.start` by one `Engine.parseEnvInt` (trimmed; unset or blank → default; anything but an
+  integer ≥ 1 stops the node). Before, a typo such as `12O` silently fell back to the default (IGNIS-052.1).
+- `/files` sends `Content-Length` with the object length reported by S3 (the same as `files.size`, written at
+  upload) and fails the stream when it ends with a different byte count, so a transfer cut mid-way drops the
+  connection instead of a truncated body under 200 that a browser or CDN may keep for 24 h (IGNIS-052.2).
+- Multipart `Content-Disposition` parameters are matched as tokens (at the start or after `;`), with `\"` escapes
+  unescaped. Before, `name=` also matched the tail of `filename="…"`, so a part sending `filename` before `name`
+  got the file name as its field name (IGNIS-052.3).
+- HTML responses (pages and the error page) send `Cross-Origin-Resource-Policy: same-origin`, so another origin
+  cannot load a panel page as a subresource. A page may override it with its own header; `/files`, static assets
+  and API/JSON responses do not get it (IGNIS-052.4).
+- New S3 object keys take the year/month (`t<service>/YYYY/MM/…`) from UTC, not the node's local time zone. Keys
+  already written are kept (the key is stored in `files`). `audit_log.occurred_at` stays in local time: it is a
+  `text` column without an offset, so mixing UTC rows with existing local ones would shift the displayed time
+  and the search/retention boundaries (IGNIS-052.5).
+- Permission cache: a read that started before a package/grant change no longer writes the old permissions back
+  for 15 min after the invalidation. Invalidation bumps a per-user generation (`permgen:{login}`, TTL = cache TTL)
+  and deletes the entry in one Lua script; the cache write is a Lua compare-and-set on that generation; the retry
+  queue now retries the whole invalidation per login. The cache key is now `perm:{login}` (hash tag: both keys in one
+  Redis Cluster slot); old `perm:<login>` entries are no longer read and expire on their own (IGNIS-052.6).
+- `bin/purge.dart` drops the permission cache of the purged accounts through `Permissions.invalidateMany`
+  (`perm:{login}` + generation bump). Since IGNIS-052.6 it still deleted the old `perm:<login>` key, so the
+  new entries stayed until their TTL (IGNIS-052.7).
+
+### Tests
+
+- Three timing-sensitive tests made stable (IGNIS-052.8). `api_body_budget_test` reads the answer while it is
+  still writing the body and records what the server answered: a body over the budget must get 503 + `Retry-After`
+  from the server, and a client-side connection reset (the server closes mid-body) is accepted only for a request
+  the server did answer with that 503. `permissions_invalidation_retry_test` waits for a retry round for `retryMax`
+  + 15 s (a whole backoff plus the round itself) instead of ~30 s (the `≤ 10000` bound is unchanged). `key_rotation_test` compiles
+  itself to kernel once instead of compiling `package:ignis` from source in each of its 14 child processes
+  (~45 s → ~6 s), which ran into the test timeout on a loaded machine.
+- `api_body_budget_test`: the hanging-body check also goes through the server-side 503 record, with a 4 s deadline
+  (IGNIS-052.9).
+- `run_exclusive_pg_test`: after losing the lease (paused longer than the TTL, B took over and did its stage) a run
+  that checks `stillOwner()` starts no further stage; the resource ends as `[A1, B1]` (IGNIS-052.10).
+
+### Docs
+
+- `Redis.runExclusive` / README: the contract is at-least-once, not exactly-once, and there is no fencing token —
+  effects need deterministic ids (idempotency key, ledger with a unique key, dedup at read) (IGNIS-052.10).
+
 ## 0.5.1 — 2026-11-26
 
 ### Fixed

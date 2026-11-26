@@ -26,17 +26,17 @@ Future<void> main() async {
   Future<bool> sessionAlive(String t) async => await Sessions.get(t) != null;
 
   final t1 = await Sessions.create('ptx');
-  await Redis.setEx('perm:ptx', '{}', 60);
+  await Redis.setEx('perm:{ptx}', '{}', 60);
   late bool sessionInProgress, cacheInProgress;
   await Db.inContext(0, () async {
     await (await Db.connect()).execute("UPDATE users SET must_change_password = must_change_password WHERE username = 'ptx'");
     await Sessions.destroyAll('ptx');
     await Permissions.invalidate('ptx');
     sessionInProgress = await sessionAlive(t1);
-    cacheInProgress = await Redis.get('perm:ptx') != null;
+    cacheInProgress = await Redis.get('perm:{ptx}') != null;
   });
   check('w otwartej transakcji sesja i cache jeszcze są (zapis niezatwierdzony)', sessionInProgress && cacheInProgress);
-  check('po COMMIT sesja zamknięta i cache zrzucony', !await sessionAlive(t1) && await Redis.get('perm:ptx') == null);
+  check('po COMMIT sesja zamknięta i cache zrzucony', !await sessionAlive(t1) && await Redis.get('perm:{ptx}') == null);
 
   final t2 = await Sessions.create('ptx');
   try {
@@ -57,9 +57,9 @@ Future<void> main() async {
   check('sprzątanie po transakcji nie zabiera sesji założonej po destroyAll', !await sessionAlive(t3) && await sessionAlive(t3b!));
   final t4 = await Sessions.create('ptx');
   await Permissions.invalidate('ptx');
-  await Redis.setEx('perm:ptx', '{}', 60);
+  await Redis.setEx('perm:{ptx}', '{}', 60);
   await Permissions.invalidate('ptx');
-  check('bez otwartej transakcji — od razu', await Redis.get('perm:ptx') == null && await sessionAlive(t4));
+  check('bez otwartej transakcji — od razu', await Redis.get('perm:{ptx}') == null && await sessionAlive(t4));
   await Db.close();
   print('\nALL PASSED');
   exit(0);

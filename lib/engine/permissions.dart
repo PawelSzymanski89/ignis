@@ -13,9 +13,12 @@
 //  Patterns: `content.*` (whole section) and `*` (everything) — they work on both sides,
 //  in denies too (`content.*` among the minuses takes the whole section away).
 //
-//  User permissions are cached in Redis (`perm:<user>`), so
+//  User permissions are cached in Redis (`perm:{<user>}`), so
 //  the check in isAbleToSee does not hit the database per request. Every change of a package
 //  or grant calls invalidate() — otherwise revoking access would take effect with a delay.
+//  IGNIS-052.6: invalidate() also bumps a per-user generation (`permgen:{<user>}`, same hash slot) and the cache
+//  write is a compare-and-set on it — a database read that started before the change cannot put the old
+//  permissions back after the invalidation.
 // ============================================================================
 
 import 'dart:async';
@@ -94,16 +97,38 @@ class Permissions {
 
   // ── reading a user's permissions (from the cache) ──
 
+  static String _key(String login) => 'perm:{$login}';
+  static String _genKey(String login) => 'permgen:{$login}';
+
+  /// Test hook: awaited between the database read and the cache write.
+  static Future<void> Function()? debugBeforeCacheWrite;
+
   static Future<EffectivePermissions> forUser(String username) async {
+    String? gen; // generation before the database read; null = Redis down, do not cache
     try {
-      final raw = await Redis.get('perm:$username');
+      final r = await Redis.cmd(['MGET', _key(username), _genKey(username)]) as List;
+      final raw = r[0] as String?;
       final j = raw == null ? null : jsonDecode(raw) as Map;
       if (j != null && j.containsKey('p')) return EffectivePermissions.fromJson(j); // an entry from before 'p' — recompute
+      gen = (r[1] as String?) ?? '';
     } catch (_) {/* Redis down → compute from the database, just slower */}
 
     final u = await _fromDb(username);
+    if (gen == null) return u;
+    await debugBeforeCacheWrite?.call();
     try {
-      await Redis.setEx('perm:$username', jsonEncode(u.toJson()), _ttlCache);
+      // SET only while no invalidation happened since the read started
+      await Redis.cmd([
+        'EVAL',
+        "if (redis.call('GET', KEYS[2]) or '') == ARGV[1] then "
+            "return redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]) end return 0",
+        '2',
+        _key(username),
+        _genKey(username),
+        gen,
+        jsonEncode(u.toJson()),
+        '$_ttlCache',
+      ]);
     } catch (e) {
       _logRedis('permission cache not written', e);
     }
@@ -118,20 +143,33 @@ class Permissions {
   /// Drops the permission cache of [logins] (e.g. holders of a changed package). After the request transaction ends;
   /// without an open transaction right away — then a Redis error goes to the caller instead of quietly leaving
   /// old permissions in the cache for [_ttlCache].
-  static Future<void> invalidateMany(List<String> logins) =>
-      Db.afterTransaction(() => _del([for (final u in logins) 'perm:$u'], _ttlCache));
+  static Future<void> invalidateMany(List<String> logins) => Db.afterTransaction(() => _del(logins, _ttlCache));
 
-  /// DEL that does not give up: a failed key goes to ONE shared retry queue (deduplicated by key, at most
+  /// One user: INCR the generation (TTL = cache TTL, outlives any in-flight read) and DEL the entry, atomically.
+  static Future<void> _invalidateOne(String login) => Redis.cmd([
+        'EVAL',
+        "redis.call('INCR', KEYS[2]) redis.call('EXPIRE', KEYS[2], ARGV[1]) return redis.call('DEL', KEYS[1])",
+        '2',
+        _key(login),
+        _genKey(login),
+        '$_ttlCache',
+      ]);
+
+  static Future<void> _invalidateAll(List<String> logins) async {
+    await Future.wait([for (final l in logins) _invalidateOne(l)]);
+  }
+
+  /// Invalidation that does not give up: a failed login goes to ONE shared retry queue (deduplicated, at most
   /// [retryMaxKeys]) worked by ONE background loop with exponential backoff + jitter (from [retryEvery] up to
   /// [retryMax]) until it goes through or the entry would have expired anyway ([ttl] s after its last failure) —
-  /// otherwise a Redis blip during the invalidation left a revoked permission alive for the whole TTL. The error is
-  /// still rethrown to the caller.
-  static Future<void> _del(List<String> keys, int ttl) async {
+  /// otherwise a Redis blip during the invalidation left a revoked permission alive for the whole TTL. The retry
+  /// bumps the generation too. The error is still rethrown to the caller.
+  static Future<void> _del(List<String> logins, int ttl) async {
     try {
-      await Redis.delMany(keys);
+      await _invalidateAll(logins);
     } catch (e) {
       _logRedis('cache invalidation failed, retrying', e);
-      _queueRetry(keys, ttl);
+      _queueRetry(logins, ttl);
       rethrow;
     }
   }
@@ -140,7 +178,7 @@ class Permissions {
   static const retryMax = Duration(seconds: 30);
   static const retryMaxKeys = 10000;
 
-  /// key → when to give up on it.
+  /// login → when to give up on it.
   static final _pending = <String, DateTime>{};
   static bool _retrying = false;
   static final _rnd = Random();
@@ -174,7 +212,7 @@ class Permissions {
         if (_pending.isEmpty) break;
         final batch = Map.of(_pending);
         try {
-          await Redis.delMany(batch.keys.toList());
+          await _invalidateAll(batch.keys.toList());
           // keep a key re-queued meanwhile (a newer failure, later deadline)
           batch.forEach((k, end) {
             if (_pending[k] == end) _pending.remove(k);

@@ -58,6 +58,28 @@ Future<void> main(List<String> a) async {
   check('IGNIS_API_BODY_BUDGET_MB=0 stops the start',
       out.contains('START FAILED') && out.contains('IGNIS_API_BODY_BUDGET_MB'));
 
+  print('integer variables (IGNIS-052.1):');
+  for (final key in ['IGNIS_UPLOAD_BUDGET_MB', 'IGNIS_TIMEOUT_S', 'IGNIS_SHORT_TIMEOUT_S', 'IGNIS_BCRYPT_THREADS', 'IGNIS_S3_TIMEOUT_S']) {
+    for (final bad in ['12O', '-1', '0']) {
+      out = await start({'IGNIS_TRUSTED_PROXIES': 'none', key: bad});
+      check('$key=$bad stops the start', out.contains('START FAILED') && out.contains('$key=$bad'));
+    }
+    out = await start({'IGNIS_TRUSTED_PROXIES': 'none', key: ' 120 '});
+    check('$key=" 120 " (trimmed) gets past the check', out.contains('START FAILED') && !out.contains(key) && out.contains('IGNIS_DB_HOST'));
+  }
+  final p = Engine.parseEnvInt;
+  check('parseEnvInt: unset / blank → default', p('X', null, 7) == 7 && p('X', '  ', 7) == 7);
+  check('parseEnvInt: " 120 " → 120', p('X', ' 120 ', 7) == 120);
+  for (final bad in ['12O', '-1', '0', '1.5']) {
+    var threw = false;
+    try {
+      p('X', bad, 7);
+    } on StateError {
+      threw = true;
+    }
+    check('parseEnvInt: "$bad" → StateError', threw);
+  }
+
   print('backend TLS:');
   // SEC-040.6: missing IGNIS_NODE and a remote Redis without a password are warned about
   final n = Ignis.nodeWarnings;

@@ -93,9 +93,10 @@ class Upload {
     return UploadResult(fields, files);
   }
 
+  // Matched as a parameter token (start or after ';'), so name= never hits the tail of filename=
   static String? _param(String header, String key) {
-    final m = RegExp('$key="([^"]*)"').firstMatch(header);
-    return m?.group(1);
+    final m = RegExp('(?:^|;)\\s*$key\\s*=\\s*"((?:[^"\\\\]|\\\\.)*)"').firstMatch(header);
+    return m?.group(1)?.replaceAllMapped(RegExp(r'\\(.)'), (x) => x[1]!);
   }
 }
 

@@ -8,6 +8,8 @@
 
 import 'dart:io';
 
+import 'package:minio/minio.dart' show MinioByteStream;
+
 import '../engine/admin_page.dart';
 import '../engine/annotations.dart';
 import '../engine/list.dart';
@@ -173,6 +175,9 @@ class FilesPage extends AdminPage {
 /// derived from the previous one. It gives no access to the file list.
 @Page('/files', noDb: true)
 class ServeFilePage extends PageEngine {
+  /// Object source; tests swap it for a fake stream (no MinIO).
+  static Future<Stream<List<int>>> Function(String key, int service) read = Storage.read;
+
   @override
   Future<bool> doBeforeProcess() async {
     // the key arrives as ?k=YYYY/MM/hex.ext — see the path rewrite in ignis.dart
@@ -180,8 +185,13 @@ class ServeFilePage extends PageEngine {
     try {
       // a stream straight from storage to the client — a 5 MB image does not land in node RAM;
       // a key of another service throws (Storage.allowed) → 404
-      final stream = await Storage.read(key, context.service);
+      final stream = await read(key, context.service);
       status = 200;
+      // Object length from S3 (= files.size, written at upload). With Content-Length dart:io
+      // closes a short body with an error and drops the connection — a stream cut mid-way
+      // never reaches the client/CDN as a complete 200 cached for 24 h.
+      final length = stream is MinioByteStream ? stream.contentLength : null;
+      if (length != null) header('Content-Length', '$length');
       final type = _typeFromKey(key);
       header('Content-Type', type);
       // the key does not change, but a deleted file must not live in the browser and CDN cache for a year
@@ -190,11 +200,23 @@ class ServeFilePage extends PageEngine {
       // A user file never runs a script in the panel origin: SVG/PDF/HTML
       // opened directly get a sandbox (in <img> there are no scripts anyway).
       header('Content-Security-Policy', 'sandbox');
-      saveStream(stream);
+      saveStream(length == null ? stream : exactly(stream, length));
       return false;
     } catch (_) {
       return notFound();
     }
+  }
+
+  /// [s] that fails when it ends with a byte count other than [length]. dart:io closing a response
+  /// short of Content-Length throws outside the request zone and ends the process; an error in the
+  /// stream instead goes the normal way (addStream fails, the connection is dropped).
+  static Stream<List<int>> exactly(Stream<List<int>> s, int length) async* {
+    var n = 0;
+    await for (final c in s) {
+      n += c.length;
+      yield c;
+    }
+    if (n != length) throw StateError('storage stream: $n of $length bytes');
   }
 
   static String _typeFromKey(String k) => switch (k.split('.').last.toLowerCase()) {

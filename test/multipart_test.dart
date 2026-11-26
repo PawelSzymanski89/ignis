@@ -47,6 +47,14 @@ Future<void> main() async {
   check('ponad ${Upload.maxParts} części → FormatException', await receive(empty, 1 << 30) is FormatException);
   check('nazwa pola dłuższa niż ${Upload.maxFieldName} → FormatException',
       await receive([...part('n' * 300, ''), ...end()], 1 << 20) is FormatException);
+  List<int> raw(String disposition, String content) =>
+      utf8.encode('--$g\r\nContent-Disposition: $disposition\r\n\r\n$content\r\n');
+  final reversed = await receive([...raw('form-data; filename="x"; name="pole"', 'abc'), ...end()], 1024);
+  check('filename przed name → fieldName z name, nie z końcówki filename',
+      reversed is UploadResult && reversed.files.single.field == 'pole' && reversed.files.single.name == 'x');
+  final escaped = await receive([...raw(r'form-data; name="a\"b"; filename="c\"d.txt"', 'abc'), ...end()], 1024);
+  check('escapowane cudzysłowy w name i filename',
+      escaped is UploadResult && escaped.files.single.field == 'a"b' && escaped.files.single.name == 'c"d.txt');
   check('brak boundary → FormatException',
       await receive(end(), 10, boundary: null) is FormatException);
 

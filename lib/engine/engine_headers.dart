@@ -63,5 +63,7 @@ void _htmlHeaders(HttpHeaders h, PageEngine page) {
   if (!page.headers.containsKey('Cache-Control')) h.set('Cache-Control', 'no-store');
   if (!page.contentType.startsWith('text/html')) return;
   if (!page.headers.containsKey('Content-Security-Policy')) h.set('Content-Security-Policy', Engine.csp);
+  // HTML only: /files, assets and API JSON stay loadable cross-origin
+  if (!page.headers.containsKey('Cross-Origin-Resource-Policy')) h.set('Cross-Origin-Resource-Policy', 'same-origin');
   h.add('Vary', 'HX-Request, X-Ignis-Live');
 }

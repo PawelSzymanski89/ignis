@@ -17,6 +17,7 @@ import 'dart:io';
 import 'package:ignis/engine/db.dart';
 import 'package:ignis/engine/audit_log.dart';
 import 'package:ignis/engine/storage.dart';
+import 'package:ignis/engine/permissions.dart';
 import 'package:ignis/engine/redis.dart';
 import 'package:ignis/engine/session.dart';
 import 'package:ignis/engine/tenant.dart';
@@ -125,12 +126,12 @@ Future<void> _main(List<String> a) async {
       for (final l in logins) {
         await Sessions.destroyAll(l);
       }
+      await Permissions.invalidateMany(logins); // perm:{l} + generation bump (IGNIS-052.7)
       final clients = [for (final l in logins) if (l.startsWith('c:$id:')) l.substring('c:$id:'.length)];
       final customerSessions = [for (final k in clients) ...await Redis.smembers('csessuser:$id|$k')];
       await Redis.delMany([
         for (final t in customerSessions) 'csess:$t',
         for (final k in clients) 'csessuser:$id|$k',
-        for (final l in logins) 'perm:$l',
         'settings:$id',
       ]);
     } catch (err) {

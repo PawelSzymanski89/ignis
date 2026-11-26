@@ -39,8 +39,8 @@ Future<void> main() async {
 }
 
 Future<void> _child() async {
-  await Redis.setEx('perm:alice', '{"a":["x"],"d":[],"p":[]}', 900);
-  await Redis.setEx('perm:bob', '{"a":["x"],"d":[],"p":[]}', 900);
+  await Redis.setEx('perm:{alice}', '{"a":["x"],"d":[],"p":[]}', 900);
+  await Redis.setEx('perm:{bob}', '{"a":["x"],"d":[],"p":[]}', 900);
   await Redis.cmd(['TESTDOWN']);
   Object? e1, e2;
   try {
@@ -54,10 +54,10 @@ Future<void> _child() async {
     e2 = e;
   }
   check('a failed invalidation still reaches the caller', e1 != null && e2 != null);
-  check('the stale entry is there while Redis refuses DEL', await Redis.get('perm:alice') != null);
+  check('the stale entry is there while Redis refuses DEL', await Redis.get('perm:{alice}') != null);
 
   // IGNIS-051.2: 1000 failed invalidations of one key = one queue entry, one loop — not 1000 loops each sending DEL
-  await Redis.setEx('perm:carol', '{"a":["x"],"d":[],"p":[]}', 900);
+  await Redis.setEx('perm:{carol}', '{"a":["x"],"d":[],"p":[]}', 900);
   for (var i = 0; i < 1000; i++) {
     try {
       await Permissions.invalidateMany(['carol']);
@@ -74,26 +74,34 @@ Future<void> _child() async {
     await Permissions.invalidateMany(many);
   } catch (_) {}
   await Redis.cmd(['TESTRESET']);
-  await Future.delayed(const Duration(milliseconds: 3500));
-  final distinct = await Redis.cmd(['TESTDISTINCT']) as int;
+  // poll until one retry round is through (10000 EVALs to the fake take a few seconds). The loop may be asleep in
+  // its backoff (up to retryMax after the failures above), so the window covers a whole backoff, whatever its phase.
+  var distinct = 0;
+  final roundBy = DateTime.now().add(Permissions.retryMax + const Duration(seconds: 15));
+  while (DateTime.now().isBefore(roundBy)) {
+    await Future.delayed(const Duration(milliseconds: 100));
+    final d = await Redis.cmd(['TESTDISTINCT']) as int;
+    if (d > 0 && d == distinct) break;
+    distinct = d;
+  }
   check('the retry queue holds at most 10000 keys (retried $distinct distinct)', distinct > 0 && distinct <= 10000);
 
   await Redis.cmd(['TESTUP']);
   final until = DateTime.now().add(const Duration(seconds: 40));
   while (DateTime.now().isBefore(until) &&
-      (await Redis.get('perm:alice') != null ||
-          await Redis.get('perm:bob') != null ||
-          await Redis.get('perm:carol') != null)) {
+      (await Redis.get('perm:{alice}') != null ||
+          await Redis.get('perm:{bob}') != null ||
+          await Redis.get('perm:{carol}') != null)) {
     await Future.delayed(const Duration(milliseconds: 200));
   }
   check('once Redis takes DEL again, the retry drops the stale entries',
-      await Redis.get('perm:alice') == null &&
-          await Redis.get('perm:bob') == null &&
-          await Redis.get('perm:carol') == null);
+      await Redis.get('perm:{alice}') == null &&
+          await Redis.get('perm:{bob}') == null &&
+          await Redis.get('perm:{carol}') == null);
   exit(0); // the retry loops are done; nothing else to wait for
 }
 
-/// GET/SET/DEL over RESP; TESTDOWN makes DEL answer an error until TESTUP; TESTCOUNT / TESTDISTINCT = DEL commands
+/// GET/SET/DEL/EVAL (invalidation script, as DEL of KEYS[1]) over RESP; TESTDOWN makes DEL answer an error until TESTUP; TESTCOUNT / TESTDISTINCT = DEL commands
 /// / distinct DEL'd keys since TESTRESET.
 Future<ServerSocket> _fakeRedis() async {
   final data = <String, String>{};
@@ -106,10 +114,11 @@ Future<ServerSocket> _fakeRedis() async {
     var buf = '';
     c.cast<List<int>>().transform(utf8.decoder).listen((chunk) {
       buf += chunk;
+      var at = 0; // parse by offset, cut once — cutting per command is quadratic on a burst of 10000 EVALs
       while (true) {
-        final parsed = _parse(buf);
+        final parsed = _parse(buf, at);
         if (parsed == null) break;
-        buf = buf.substring(parsed.$2);
+        at = parsed.$2;
         final a = parsed.$1;
         switch (a.first.toUpperCase()) {
           case 'TESTDOWN':
@@ -132,30 +141,33 @@ Future<ServerSocket> _fakeRedis() async {
           case 'GET':
             final v = data[a[1]];
             c.write(v == null ? '\$-1\r\n' : '\$${utf8.encode(v).length}\r\n$v\r\n');
-          case 'DEL':
+          case 'DEL' || 'EVAL':
+            // EVAL = the invalidation script (KEYS[1] = the cache entry): counted and failed like DEL
+            final keys = a.first.toUpperCase() == 'EVAL' ? [a[3]] : a.skip(1).toList();
             dels++;
-            delKeys.addAll(a.skip(1));
+            delKeys.addAll(keys);
             if (down) {
               c.write('-ERR down\r\n');
             } else {
-              final n = a.skip(1).where((k) => data.remove(k) != null).length;
+              final n = keys.where((k) => data.remove(k) != null).length;
               c.write(':$n\r\n');
             }
           default:
             c.write('-ERR unknown\r\n');
         }
       }
+      buf = buf.substring(at);
     }, onError: (_) {}); // the child exits without closing its connection
   });
   return s;
 }
 
-/// One RESP array of bulk strings from the front of [b], with the length consumed, or null if incomplete.
-(List<String>, int)? _parse(String b) {
-  if (!b.startsWith('*')) return null;
-  var i = b.indexOf('\r\n');
+/// One RESP array of bulk strings at [from] in [b], with the end offset, or null if incomplete.
+(List<String>, int)? _parse(String b, int from) {
+  if (!b.startsWith('*', from)) return null;
+  var i = b.indexOf('\r\n', from);
   if (i < 0) return null;
-  final n = int.parse(b.substring(1, i));
+  final n = int.parse(b.substring(from + 1, i));
   var pos = i + 2;
   final out = <String>[];
   for (var k = 0; k < n; k++) {

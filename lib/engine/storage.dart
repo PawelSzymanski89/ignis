@@ -273,7 +273,7 @@ class Storage {
     if (alreadyThere.isNotEmpty) return (alreadyThere.first[0] as int, true);
 
     final ext = extension(name);
-    final now = DateTime.now();
+    final now = DateTime.now().toUtc(); // the year/month in the key does not depend on the node TZ; old keys stay as written
     final randomValue = List.generate(16, (_) => _rnd.nextInt(256))
         .map((b) => b.toRadixString(16).padLeft(2, '0'))
         .join();
@@ -316,7 +316,8 @@ class Storage {
   }
 
   /// Deadline of one transfer to storage (`IGNIS_S3_TIMEOUT_S`, 60 s by default).
-  static Duration transferDeadline = Duration(seconds: int.tryParse(Platform.environment['IGNIS_S3_TIMEOUT_S'] ?? '') ?? 60);
+  /// [Ignis.start] sets it from [Engine.parseEnvInt], so a bad value stops the node.
+  static Duration transferDeadline = const Duration(seconds: 60);
 
   static Future<void> _deleteQuietly(String key) async {
     try {
