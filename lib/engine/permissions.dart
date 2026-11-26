@@ -21,6 +21,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:postgres/postgres.dart';
 
@@ -120,29 +121,72 @@ class Permissions {
   static Future<void> invalidateMany(List<String> logins) =>
       Db.afterTransaction(() => _del([for (final u in logins) 'perm:$u'], _ttlCache));
 
-  /// DEL that does not give up: a failure is logged and retried every [retryEvery] in the background until it goes
-  /// through or the entries would have expired anyway ([ttl] s) — otherwise a Redis blip during the invalidation left
-  /// a revoked permission alive for the whole TTL. The error is still rethrown to the caller.
+  /// DEL that does not give up: a failed key goes to ONE shared retry queue (deduplicated by key, at most
+  /// [retryMaxKeys]) worked by ONE background loop with exponential backoff + jitter (from [retryEvery] up to
+  /// [retryMax]) until it goes through or the entry would have expired anyway ([ttl] s after its last failure) —
+  /// otherwise a Redis blip during the invalidation left a revoked permission alive for the whole TTL. The error is
+  /// still rethrown to the caller.
   static Future<void> _del(List<String> keys, int ttl) async {
     try {
       await Redis.delMany(keys);
     } catch (e) {
       _logRedis('cache invalidation failed, retrying', e);
-      unawaited(_retryDel(keys, ttl));
+      _queueRetry(keys, ttl);
       rethrow;
     }
   }
 
-  static const retryEvery = Duration(seconds: 2);
+  static const retryEvery = Duration(seconds: 1);
+  static const retryMax = Duration(seconds: 30);
+  static const retryMaxKeys = 10000;
 
-  static Future<void> _retryDel(List<String> keys, int ttl) async {
+  /// key → when to give up on it.
+  static final _pending = <String, DateTime>{};
+  static bool _retrying = false;
+  static final _rnd = Random();
+
+  static void _queueRetry(List<String> keys, int ttl) {
     final end = DateTime.now().add(Duration(seconds: ttl));
-    while (DateTime.now().isBefore(end)) {
-      await Future.delayed(retryEvery);
-      try {
-        await Redis.delMany(keys);
-        return;
-      } catch (_) {/* still down — logged once in _del */}
+    var dropped = 0;
+    for (final k in keys) {
+      if (_pending.length >= retryMaxKeys && !_pending.containsKey(k)) {
+        dropped++;
+      } else {
+        _pending[k] = end;
+      }
+    }
+    if (dropped > 0) _logRedis('invalidation retry queue full', '$dropped key(s) not queued');
+    if (!_retrying) unawaited(_retryLoop());
+  }
+
+  static Future<void> _retryLoop() async {
+    _retrying = true;
+    try {
+      var wait = retryEvery;
+      while (_pending.isNotEmpty) {
+        await Future.delayed(wait * (0.5 + _rnd.nextDouble() / 2));
+        final now = DateTime.now();
+        final expired = _pending.entries.where((e) => !now.isBefore(e.value)).map((e) => e.key).toList();
+        expired.forEach(_pending.remove);
+        if (expired.isNotEmpty) {
+          _logRedis('invalidation retry gave up', '${expired.length} key(s) past the cache TTL');
+        }
+        if (_pending.isEmpty) break;
+        final batch = Map.of(_pending);
+        try {
+          await Redis.delMany(batch.keys.toList());
+          // keep a key re-queued meanwhile (a newer failure, later deadline)
+          batch.forEach((k, end) {
+            if (_pending[k] == end) _pending.remove(k);
+          });
+          wait = retryEvery;
+        } catch (_) {
+          final next = wait * 2;
+          wait = next > retryMax ? retryMax : next;
+        }
+      }
+    } finally {
+      _retrying = false;
     }
   }
 

@@ -128,11 +128,6 @@ class Redis {
             seconds.toString(),
           ])) == 1;
 
-  /// Runs [body] on at most one node at a time under the lock `lock:[name]`. Returns false (body not run) when
-  /// another run holds it. The lock is taken with a per-run token `node:<random>` and kept alive every ttl/3
-  /// (compare-and-expire); when the keep-alive finds the lock gone or taken over (or Redis fails), `stillOwner()`
-  /// turns false for good and [body] should stop at its next check. Released in finally only if still ours.
-  /// [body] errors propagate after the release.
   /// Owner prefix of this process's lock values: `IGNIS_NODE`, or — when it is unset/empty — a random id generated
   /// once per process (`hostname-pid-random`), so nodes without `IGNIS_NODE` never share the prefix `node` and
   /// [releaseLocks] of one never deletes another's locks. Only for lock ownership; the displayed node name is
@@ -151,6 +146,31 @@ class Redis {
     return '${host.replaceAll(':', '_')}-$pid-${Crypto.randomToken(4)}';
   }
 
+  /// Runs [body] while holding the lease `lock:[name]`. Returns false (body not run) when another run holds it.
+  ///
+  /// Contract:
+  /// - **Lease, not a mutex.** The lock is a Redis key with a per-run token `node:<random>` and a TTL of [ttl],
+  ///   renewed every ttl/3 (keep-alive). When a renewal finds the key gone or taken over, or Redis fails,
+  ///   `stillOwner()` turns false for good; another node may then take the lock and run concurrently.
+  /// - **[maxRun] is not a timeout.** [body] is never interrupted. After [maxRun] `stillOwner()` turns false,
+  ///   the keep-alive stops and the lock expires after at most [ttl]; [body] must notice and stop on its own.
+  /// - **No atomicity between check and write.** `stillOwner()` (last keep-alive result) and [confirmExclusive]
+  ///   (a fresh check in Redis) only narrow the window: the lease can be lost right after a check returns true
+  ///   (a pause, a slow write). Correctness must come from the resource itself — idempotent effects or a
+  ///   conditional write (unique key, version / state column checked in the UPDATE).
+  /// - **Only the owner releases or extends.** Renewal is compare-and-expire ([expireIfEqual]) and the release
+  ///   in finally is compare-and-delete ([delIfEqual]) with this run's token, so a run never touches a lock
+  ///   another run took after its lease expired.
+  /// - [body] errors propagate after the release.
+  ///
+  /// ```dart
+  /// await Redis.runExclusive('invoices', const Duration(seconds: 60), (stillOwner) async {
+  ///   for (final batch in batches) {
+  ///     if (!stillOwner() || !await Redis.confirmExclusive('invoices')) return; // before each batch
+  ///     await sendBatch(batch); // idempotent: UPDATE … SET sent = true WHERE id = @id AND NOT sent
+  ///   }
+  /// });
+  /// ```
   static Future<bool> runExclusive(
       String name, Duration ttl, Future<void> Function(bool Function() stillOwner) body, {Duration? maxRun}) async {
     final key = 'lock:$name';
