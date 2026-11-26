@@ -92,6 +92,20 @@ Future<void> main() async {
   check('empty tenant rejected', await rejected(() => Db.asTenant('', count)));
   check('tenant GUC does not outlive the transaction',
       (await (await Db.pool()).execute("SELECT coalesce(current_setting('ignis.tenant', true), '')")).first[0] == '');
+  // Db.bindTenant: the tenant of a request transaction, bound after authentication
+  check('bindTenant in a request transaction: only that tenant, before and after the first query',
+      await Db.inContext(1, () async { final before = await count(); await Db.bindTenant('a'); return (before, await count()); }) == (0, 3) &&
+          await Db.inContext(1, () async { await Db.bindTenant('b'); return count(); }) == 1);
+  check('bindTenant survives Db.release (reopened transaction)',
+      await Db.inContext(1, () async { await Db.bindTenant('a'); await count(); await Db.release(); return count(); }) == 3);
+  check('bindTenant: same tenant again is a no-op, another throws',
+      await Db.inContext(1, () async { await Db.bindTenant('a'); await Db.bindTenant('a');
+        return rejected(() => Db.bindTenant('b')); }));
+  check('bindTenant: asSystem inside still sees all', await Db.inContext(1, () async {
+        await Db.bindTenant('a'); return (await Db.asSystem(count), await count()); }) == (4, 3));
+  check('bindTenant outside a transaction / in system context / empty throws',
+      await rejected(() => Db.bindTenant('a')) && await Db.asSystem(() => rejected(() => Db.bindTenant('a'))) &&
+          await Db.inContext(1, () => rejected(() => Db.bindTenant(''))));
   check('Schema.checkRls clean', (await Db.asSystem(() async => Schema.checkRls(await Db.connect()))).isEmpty);
 
   // invariant generated from the registry: every entity with tenantColumn has ENABLE + FORCE and both policies

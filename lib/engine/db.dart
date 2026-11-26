@@ -41,8 +41,8 @@ class DbSession {
   DbSession._connection(this._connection) : _poolRef = null, _context = null, _tenant = null;
   DbSession._lazy(Pool pool, String context, [this._tenant]) : _poolRef = pool, _connection = null, _context = context;
 
-  /// App tenant of the lazy transaction (`ignis.tenant`, [Db.asTenant]), or null.
-  final String? _tenant;
+  /// App tenant of the lazy transaction (`ignis.tenant`, [Db.asTenant] / [Db.bindTenant]), or null.
+  String? _tenant;
 
   /// Pool: no context ([_context] == null), or the connection source of the lazy transaction.
   final Pool? _poolRef;
@@ -309,6 +309,26 @@ class Db {
           '(${z._tenant != null ? 'tenant ${z._tenant}' : 'request/system'}); start it outside');
     }
     return _inTransaction('', body, tenant);
+  }
+
+  /// Binds app tenant [tenant] to the CURRENT request transaction (`ignis.tenant`, set locally): from here on
+  /// @Entity(tenantColumn:) tables show and accept only that tenant's rows, also in transactions reopened after
+  /// [release]/[commit]. One-way: the same tenant again is a no-op, another one throws [StateError], as does a call
+  /// outside a request/tenant transaction or in the system context. Call it only AFTER the tenant is authenticated.
+  static Future<void> bindTenant(String tenant) async {
+    if (tenant.isEmpty) throw ArgumentError.value(tenant, 'tenant', 'must not be empty');
+    final s = _lazy;
+    if (s == null || s._context == '*') {
+      throw StateError('Db.bindTenant($tenant) needs a request or tenant transaction (not none, not system)');
+    }
+    s._notRaised('bindTenant');
+    if (s._tenant == tenant) return;
+    if (s._tenant != null) throw StateError('Db.bindTenant($tenant): the transaction is bound to tenant ${s._tenant}');
+    s._tenant = tenant;
+    // an already open transaction set its GUCs at BEGIN; a later one picks [_tenant] up in [_tx]
+    if (s._opening != null) {
+      await (await s._tx()).execute(r"SELECT set_config('" + tenantGuc + r"', $1, true)", parameters: [tenant]);
+    }
   }
 
   static Future<T> _inTransaction<T>(String value, Future<T> Function() body, [String? tenant]) async {

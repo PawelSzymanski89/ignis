@@ -12,6 +12,8 @@
   (`ignis.tenant`, local to one transaction). No tenant = 0 rows; only the system context sees all; `Schema.checkRls`
   covers the new tables. `EntityMeta` gains an optional `tenantColumn` (regenerate the registry). Entities without it
   are unchanged.
+- `Db.bindTenant(tenant)` binds an app tenant to the current request transaction after authentication (request pages
+  run inside `Db.inContext`, where `Db.asTenant` throws); one-way, survives `Db.release`/`commit`.
 
 ### Changed (breaking)
 
