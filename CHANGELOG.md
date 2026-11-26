@@ -25,6 +25,9 @@
   and deletes the entry in one Lua script; the cache write is a Lua compare-and-set on that generation; the retry
   queue now retries the whole invalidation per login. The cache key is now `perm:{login}` (hash tag: both keys in one
   Redis Cluster slot); old `perm:<login>` entries are no longer read and expire on their own (IGNIS-052.6).
+- `bin/purge.dart` drops the permission cache of the purged accounts through `Permissions.invalidateMany`
+  (`perm:{login}` + generation bump). Since IGNIS-052.6 it still deleted the old `perm:<login>` key, so the
+  new entries stayed until their TTL (IGNIS-052.7).
 
 ## 0.5.1 — 2026-11-26
 
