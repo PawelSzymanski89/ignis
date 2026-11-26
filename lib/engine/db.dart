@@ -252,7 +252,8 @@ class Db {
     }
   }
 
-  static int bcryptWorkers = int.tryParse(Platform.environment['IGNIS_BCRYPT_THREADS'] ?? '') ?? Platform.numberOfProcessors;
+  /// [Ignis.start] sets it from [Engine.parseEnvInt], so a bad value stops the node.
+  static int bcryptWorkers = Platform.numberOfProcessors;
   static int bcryptQueue = 64;
   static int _bcryptRunning = 0;
   static final _bcryptWaiting = Queue<Completer<void>>();

@@ -316,7 +316,8 @@ class Storage {
   }
 
   /// Deadline of one transfer to storage (`IGNIS_S3_TIMEOUT_S`, 60 s by default).
-  static Duration transferDeadline = Duration(seconds: int.tryParse(Platform.environment['IGNIS_S3_TIMEOUT_S'] ?? '') ?? 60);
+  /// [Ignis.start] sets it from [Engine.parseEnvInt], so a bad value stops the node.
+  static Duration transferDeadline = const Duration(seconds: 60);
 
   static Future<void> _deleteQuietly(String key) async {
     try {

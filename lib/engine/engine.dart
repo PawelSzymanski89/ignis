@@ -128,6 +128,15 @@ class Engine {
   /// before routing, so a flood does not queue bodies, pool waits and bcrypt jobs without bound.
   /// [Ignis.start] sets it from [parseMaxInFlight].
   static int maxInFlight = 512;
+
+  /// Integer variable [key]: unset or blank → [def]; anything but an integer ≥ [min] (after trim) stops the node.
+  static int parseEnvInt(String key, String? raw, int def, {int min = 1}) {
+    final t = raw?.trim();
+    if (t == null || t.isEmpty) return def;
+    final n = int.tryParse(t);
+    if (n == null || n < min) throw StateError('$key=$raw — must be an integer ≥ $min ($def by default)');
+    return n;
+  }
   static int _inFlight = 0;
 
   /// `IGNIS_MAX_INFLIGHT`: unset → 512; anything but an integer ≥ 1 stops the node (0 would answer 503 to everything).
@@ -169,7 +178,8 @@ class Engine {
 
   /// Total `Content-Length` of multiparts buffered at once (`IGNIS_UPLOAD_BUDGET_MB`, 64 MB by default);
   /// above it an upload gets 503 instead of another 16 MB in RAM.
-  static int multipartBudget = (int.tryParse(Platform.environment['IGNIS_UPLOAD_BUDGET_MB'] ?? '') ?? 64) * 1024 * 1024;
+  /// [Ignis.start] sets it from [parseEnvInt], so a bad value stops the node.
+  static int multipartBudget = 64 * 1024 * 1024;
   static int _multipartInFlight = 0;
 
   /// Total bytes of `api: true` bodies held at once (`IGNIS_API_BODY_BUDGET_MB`, 64 MB by default), on the wire and
@@ -191,11 +201,13 @@ class Engine {
 
   /// Total request time limit (`IGNIS_TIMEOUT_S`, 120 s by default — with room for a 16 MB upload).
   /// Applies until the route is matched and for routes with `maxBody`.
-  static Duration requestDeadline = Duration(seconds: int.tryParse(Platform.environment['IGNIS_TIMEOUT_S'] ?? '') ?? 120);
+  /// [Ignis.start] sets it from [parseEnvInt], so a bad value stops the node.
+  static Duration requestDeadline = const Duration(seconds: 120);
 
   /// Limit for routes without `maxBody` (`IGNIS_SHORT_TIMEOUT_S`, 15 s by default): a plain form does not
   /// need two minutes, and a slow client should not hold the socket as long as an upload.
-  static Duration shortDeadline = Duration(seconds: int.tryParse(Platform.environment['IGNIS_SHORT_TIMEOUT_S'] ?? '') ?? 15);
+  /// [Ignis.start] sets it from [Engine.parseEnvInt], so a bad value stops the node.
+  static Duration shortDeadline = const Duration(seconds: 15);
 
   static Duration routeDeadline(Page? meta) =>
       meta?.maxBody == null && shortDeadline < requestDeadline ? shortDeadline : requestDeadline;

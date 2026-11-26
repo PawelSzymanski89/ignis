@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2 — Unreleased
+
+### Fixed
+
+- `IGNIS_UPLOAD_BUDGET_MB`, `IGNIS_TIMEOUT_S`, `IGNIS_SHORT_TIMEOUT_S`, `IGNIS_BCRYPT_THREADS` and `IGNIS_S3_TIMEOUT_S`
+  are validated in `Ignis.start` by one `Engine.parseEnvInt` (trimmed; unset or blank → default; anything but an
+  integer ≥ 1 stops the node). Before, a typo such as `12O` silently fell back to the default (IGNIS-052.1).
+
 ## 0.5.1 — 2026-11-26
 
 ### Fixed
