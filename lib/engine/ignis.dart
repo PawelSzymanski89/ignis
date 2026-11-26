@@ -66,7 +66,10 @@ class Ignis {
 
   /// Background job: every [interval] runs [body] under [Redis.runExclusive] (one node at a time cluster-wide,
   /// no overlap on this node). Errors are logged and the timer keeps going. Timers stop at node shutdown
-  /// ([stopJobs]). [maxRun] — see [Redis.runExclusive]. Returns the timer (cancel to stop one job).
+  /// ([stopJobs]). Returns the timer (cancel to stop one job). Same contract as [Redis.runExclusive]: a lease,
+  /// not a mutex — [maxRun] does not interrupt [body] (only turns `stillOwner()` false and stops the keep-alive),
+  /// and a true `stillOwner()` does not guard the next write, so check it before each batch and keep the effects
+  /// idempotent / conditional.
   static Timer every(String name, Duration interval, Duration ttl,
       Future<void> Function(bool Function() stillOwner) body, {Duration? maxRun}) {
     var running = false;

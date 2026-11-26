@@ -537,6 +537,18 @@ The engine's own audit-log retention shows the pattern: every node runs the dail
 that wins `Redis.setNxEx('lock:audit_log', <IGNIS_NODE>, 3600)` deletes old entries; the others skip that
 round. A `lock:` key carrying the node name is also released when that node shuts down.
 
+For longer jobs use `Ignis.every(name, interval, ttl, (stillOwner) async { … }, maxRun: …)` (or
+`Redis.runExclusive` directly). What it guarantees, and what it does not:
+
+- It is a **lease**: a `lock:` key with a per-run token and a TTL, renewed every ttl/3. Lose the renewal
+  (key gone, taken over, Redis error) and `stillOwner()` turns false for good — another node may start.
+- `maxRun` is **not a timeout**: the callback is never interrupted; after the limit `stillOwner()` turns
+  false and the renewal stops, so the lock expires within `ttl`. The callback must stop on its own.
+- `stillOwner()` and `Redis.confirmExclusive(name)` do **not** make check-then-write atomic — the lease can
+  be lost right after a check. Check before each batch and before any irreversible effect, and make the
+  effect itself safe to repeat (idempotent, or a conditional write such as `… WHERE NOT sent`).
+- Only the owning run renews or releases its lock (compare-and-expire / compare-and-delete on its token).
+
 ### 🚦 Proxy for several nodes
 
 Caddy passes `Host` through unchanged and sets `X-Forwarded-For` and `X-Forwarded-Proto` by default (ignoring

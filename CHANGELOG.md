@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 — Unreleased
+
+### Documentation
+
+- `Redis.runExclusive` / `Ignis.every`: the docstring sits on `runExclusive` again (it was above `lockNode`)
+  and states the contract — a lease (TTL + keep-alive), `maxRun` is not a timeout, `stillOwner()` /
+  `confirmExclusive` give no check-then-write atomicity (use idempotent or conditional writes), only the owner
+  renews or releases. Same in README, *One job per cluster*.
+
 ## 0.5.0 — 2026-11-26
 
 ### Documentation
