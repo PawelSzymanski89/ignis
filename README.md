@@ -208,6 +208,9 @@ dart pub get
 dart run build_runner build      # writes lib/ignis_registry.g.dart
 ```
 
+Under `dart run` a registry older than lib/ stops the start with the command to run;
+`IGNIS_ALLOW_STALE_REGISTRY=1` lets it start anyway with a warning. A compiled binary is not checked.
+
 **4. Pass it to the engine** — the one line Ignis cannot write for you:
 
 ```dart

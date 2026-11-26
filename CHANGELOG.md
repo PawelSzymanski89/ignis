@@ -12,6 +12,19 @@
   covers the new tables. `EntityMeta` gains an optional `tenantColumn` (regenerate the registry). Entities without it
   are unchanged.
 
+### Changed (breaking)
+
+- A stale `lib/ignis_registry.g.dart` (lib/ changed since the last `build_runner build`) now stops a JIT start with a
+  `StateError` instead of one warning. `IGNIS_ALLOW_STALE_REGISTRY=1` restores the old warning-only behaviour. AOT
+  binaries are unchanged (no sources, no check). `Ignis.resolveRegistry` gains an optional `env`.
+
+### Fixed
+
+- A failed permission/settings cache invalidation (Redis blip) is logged and retried in the background until it goes
+  through, instead of leaving a revoked permission cached for up to 15 min. Other swallowed Redis errors in
+  `Permissions` are logged to stderr (at most once a minute per kind).
+- `/health` writes its `health:<node>` probe with a 60 s TTL instead of a key that never expires.
+
 ## 0.4.4 — 2026-11-26
 
 ### Fixed

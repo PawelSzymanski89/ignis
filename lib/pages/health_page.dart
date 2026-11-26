@@ -34,7 +34,7 @@ class HealthPage extends PageEngine {
     final db = await _check(() async =>
         (await Db.connect()).execute('SELECT 1').then((_) => true));
     final redis = await _check(() async {
-      await Redis.set('health:$node', DateTime.now().toIso8601String());
+      await Redis.setEx('health:$node', DateTime.now().toIso8601String(), 60); // EX: a removed node leaves no key behind
       return true;
     });
     // storage for information only — see the comment at the top of the file
