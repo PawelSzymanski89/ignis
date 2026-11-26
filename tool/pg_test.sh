@@ -46,6 +46,8 @@ dart run tool/pg_new_db.dart ignistest ignis_app ignisapp ignis_rt ignisrt || ex
 [ -z "$IGNIS_PG_EXTERNAL" ] || PGPASSWORD=$PGW psql -qX -h $PGH -p $PORT -U $PGU -d ignistest -c 'ALTER SCHEMA public OWNER TO ignis_app' || exit 1
 export IGNIS_DB_NAME=ignistest IGNIS_DB_USER=ignis_app IGNIS_DB_PASS=ignisapp IGNIS_REDIS_HOST=127.0.0.1 IGNIS_REDIS_PORT=$RPORT
 export IGNIS_DOMAINS=${IGNIS_DOMAINS:-localhost}
+# test fixtures predate the required platform 2FA (0.5.0); test/platform_2fa_pg_test.dart turns it on itself
+export IGNIS_REQUIRE_PLATFORM_2FA=${IGNIS_REQUIRE_PLATFORM_2FA:-0}
 [ -n "$IGNIS_KEY" ] || IGNIS_KEY=$(printf '0123456789abcdef%.0s' 1 2 3 4); export IGNIS_KEY # bash 3.2 (macOS): no {..} inside ${:-$()}
 bad=0
 for t in ${@:-test/*_pg_test.dart}; do

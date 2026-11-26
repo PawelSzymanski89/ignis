@@ -623,14 +623,15 @@ class Db {
     return rows.isEmpty ? 'customer' : (rows.first[0] as String? ?? 'customer');
   }
 
-  /// Realm, service, password-change flag and session epoch of an account in one query.
-  static Future<(String, int, bool, int)?> account(String username) async {
+  /// Realm, service, password-change flag, session epoch and "has a second factor" of an account in one query.
+  static Future<(String, int, bool, int, bool)?> account(String username) async {
     final rows = await (await connect()).execute(
-      Sql.named('SELECT realm, service, coalesce(must_change_password, false), session_epoch FROM users WHERE username=@u'),
+      Sql.named("SELECT realm, service, coalesce(must_change_password, false), session_epoch, "
+          "coalesce(totp, '') <> '' FROM users WHERE username=@u"),
       parameters: {'u': username},
     );
     if (rows.isEmpty) return null;
     return ((rows.first[0] as String?) ?? 'customer', (rows.first[1] as int?) ?? 0,
-        rows.first[2] == true, rows.first[3] as int);
+        rows.first[2] == true, rows.first[3] as int, rows.first[4] == true);
   }
 }

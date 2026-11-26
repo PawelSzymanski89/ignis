@@ -27,6 +27,19 @@ import '../engine/totp.dart';
     // from the profile dropdown in the top bar, where everyone looks for it.
     exemptFromPasswordChange: true)
 class AccountPage extends AdminPage {
+  /// A restricted session runs only the actions that lift the restriction: the password first,
+  /// then the second factor. Anything else (sign out everywhere, a made-up name) → back here.
+  @override
+  Future<bool> beforeAction(String name) async {
+    if (!restricted) return true;
+    final allowed = mustChangePassword ? const {'password'} : const {'password', 'totp_start', 'totp_enable'};
+    if (allowed.contains(name)) return true;
+    back('/admin/account',
+        message: t(mustChangePassword ? 'ignis.account.must_change' : 'ignis.account.must_enable_totp'),
+        type: 'danger');
+    return false;
+  }
+
   @Action('password')
   Future<bool> password() async {
     final error = await Permissions.ownPassword(
@@ -92,6 +105,11 @@ class AccountPage extends AdminPage {
   /// is meant to protect exactly against someone who took over an open session.
   @Action('totp_disable')
   Future<bool> totpDisable() async {
+    // a required factor is not removed by the account itself — the restriction would come straight back;
+    // only another administrator (permissions panel) or `bin/account.dart disable-2fa` clears it
+    if (AdminPage.totpRequired(accountService)) {
+      return back('/admin/account', message: t('ignis.msg.account.totp_required'), type: 'danger');
+    }
     if (!await Permissions.confirmPassword(login, get('password_confirm') ?? '', remoteAddress)) {
       return back('/admin/account', message: t('ignis.msg.account.wrong_password'), type: 'danger');
     }
@@ -115,6 +133,8 @@ class AccountPage extends AdminPage {
   Future<void> insertData() async {
     await sharedData();
     put('must_change', mustChangePassword);
+    put('must_enable_totp', mustEnableTotp && !mustChangePassword);
+    put('totp_required', AdminPage.totpRequired(accountService));
     put('has_totp', await Permissions.hasTotp(login));
     put('new_secret', _newSecret);
     put('new_secret_readable', _newSecret.isEmpty ? '' : Totp.readable(_newSecret));

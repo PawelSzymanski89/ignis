@@ -244,7 +244,7 @@ class PermissionsPage extends AdminPage {
   // ─────────────── helpers ───────────────
 
   /// Back-office account within this page's scope (service — its own, platform — any), or null.
-  Future<(String, int, bool, int)?> _account(String u) async {
+  Future<(String, int, bool, int, bool)?> _account(String u) async {
     final k = await Db.account(u);
     return k != null && k.$1 == 'staff' && (_all || k.$2 == context.service) ? k : null;
   }

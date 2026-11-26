@@ -20,6 +20,16 @@
 
 ### Changed (breaking)
 
+- Required second factor for platform accounts (service 0), enforced in `AdminPage.isAbleToSee`, not in the UI: a
+  platform account without TOTP gets a restricted session, like `must_change_password` — only `/admin/account`
+  (actions `password`, `totp_start`, `totp_enable`) and sign-out; every other page and action redirects to
+  `/admin/account`. With `must_change_password` too, the password comes first. Enabling TOTP lifts it at once. The
+  account cannot disable its own required factor (only `dart run ignis:account disable-2fa <login>` or another
+  administrator in the permissions panel). **Migration:** enable TOTP on every platform account (sign in → "My account"
+  → second factor) before upgrading, or set `IGNIS_REQUIRE_PLATFORM_2FA=0` to keep the old behaviour.
+  `IGNIS_REQUIRE_STAFF_2FA=1` applies the same to every staff account. `Db.account` returns a fifth field (has TOTP);
+  `AdminPage` gains `mustEnableTotp`, `restricted`, `totpRequired(service)`. Test runners (`tool/pg_test.sh`) default
+  to `IGNIS_REQUIRE_PLATFORM_2FA=0`.
 - A stale `lib/ignis_registry.g.dart` (lib/ changed since the last `build_runner build`) now stops a JIT start with a
   `StateError` instead of one warning. `IGNIS_ALLOW_STALE_REGISTRY=1` restores the old warning-only behaviour. AOT
   binaries are unchanged (no sources, no check). `Ignis.resolveRegistry` gains an optional `env`.

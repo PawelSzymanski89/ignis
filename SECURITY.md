@@ -178,10 +178,17 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
 - **If the TOTP ciphertext cannot be decrypted, login is denied** rather than silently skipping the
   factor.
 
+- **Required for platform accounts** (service `0`, since 0.5.0): without TOTP the password gives only a restricted
+  session — `/admin/account` (password change, enabling TOTP) and sign-out; any other page or action redirects there.
+  Enforced in the authorization path (`AdminPage.isAbleToSee`, `AccountPage.beforeAction`), not in the UI. A pending
+  password change comes first. The account cannot disable its own required factor; the console `disable-2fa` or
+  another administrator can, and the restriction comes back. `IGNIS_REQUIRE_PLATFORM_2FA=0` turns it off;
+  `IGNIS_REQUIRE_STAFF_2FA=1` extends it to every staff account.
+
 ### Enabling TOTP (do it for every staff account, the platform `admin` first)
 
-The engine does not force a second factor — a fresh install has an `admin` account protected by a password only.
-That account sees every service (context `0`), so treat 2FA on it as part of the install, not an option:
+A fresh install has an `admin` account protected by a password only, and the panel lets it do nothing except change
+the password and enable TOTP until it has one (unless `IGNIS_REQUIRE_PLATFORM_2FA=0`):
 
 1. Sign in, change the initial password (the panel forces it) to a long, random one kept in a password manager.
 2. `/admin/account` → **Second factor** → scan the QR code with any TOTP app (Aegis, Google Authenticator,
@@ -199,7 +206,7 @@ dart run ignis:account disable-2fa admin       # clears the second factor (audit
 dart run ignis:account password admin < file   # new password from stdin; must be changed at next sign-in
 ```
 
-Then enable TOTP again. Other accounts' factors are cleared from the permissions panel by an administrator.
+Then enable TOTP again (a platform account is restricted until you do). Other accounts' factors are cleared from the permissions panel by an administrator.
 Do not rely on network filters alone (e.g. `/admin` reachable only from a LAN/VPN): anything inside that network —
 another container, a VPN client — then faces just a password. Firewall the app port so only the proxy reaches it.
 

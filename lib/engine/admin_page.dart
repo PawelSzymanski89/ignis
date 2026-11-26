@@ -31,6 +31,24 @@ abstract class AdminPage extends PageEngine {
   bool _mustChangePassword = false;
   bool get mustChangePassword => _mustChangePassword;
 
+  /// Set when the account must have a second factor ([totpRequired]) and has none yet —
+  /// the same restricted session as [mustChangePassword]: only `/admin/account` and sign-out.
+  bool _mustEnableTotp = false;
+  bool get mustEnableTotp => _mustEnableTotp;
+
+  /// A restricted session (password to change or second factor to enable).
+  bool get restricted => _mustChangePassword || _mustEnableTotp;
+
+  /// `IGNIS_REQUIRE_PLATFORM_2FA` (default on; `0` turns it off): a platform account (service 0)
+  /// without TOTP gets a restricted session. Settable for tests.
+  static bool requirePlatform2fa = Platform.environment['IGNIS_REQUIRE_PLATFORM_2FA'] != '0';
+
+  /// `IGNIS_REQUIRE_STAFF_2FA=1`: the same for every staff account, in every service.
+  static bool requireStaff2fa = Platform.environment['IGNIS_REQUIRE_STAFF_2FA'] == '1';
+
+  /// Whether a staff account of [service] must have a second factor.
+  static bool totpRequired(int service) => requireStaff2fa || (requirePlatform2fa && service == 0);
+
 
   /// The signed-in user (null before isAbleToSee).
   Session? get session => _session;
@@ -73,6 +91,10 @@ abstract class AdminPage extends PageEngine {
     _accountService = account.$2;
     if (_accountService != context.service) return false;
 
+    // BARRIER 2.5: a required second factor not enabled yet — enforced here, not in the UI,
+    // so no other page and no other action is reachable with the password alone.
+    _mustEnableTotp = !account.$5 && totpRequired(_accountService);
+
     // BARRIER 3: platform pages are invisible from a service panel — hiding them
     // in the menu is not enough, because the address can be typed by hand.
     if (meta.platformOnly && !context.platform) return false;
@@ -80,7 +102,7 @@ abstract class AdminPage extends PageEngine {
 
     // BARRIER 4: the permission from @Page(requires:)
     _perms = await Permissions.forUser(_session!.username);
-    if (_mustChangePassword && !meta.exemptFromPasswordChange) return false;
+    if (restricted && !meta.exemptFromPasswordChange) return false;
     return _perms.allows(meta.requires);
   }
 

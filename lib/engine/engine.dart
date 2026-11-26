@@ -587,7 +587,7 @@ class Engine {
       // 2) authorization — false ⇒ redirect to meta.redirectIfNotAbleToSee.
       // a password set by someone else: we lead to the password change, not
       // to sign-in — sending to sign-in would look like a broken session
-      if (page is AdminPage && page.mustChangePassword && page.session != null) {
+      if (page is AdminPage && page.restricted && page.session != null) {
         page.redirect('/admin/account');
         return false;
       }

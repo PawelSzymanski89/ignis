@@ -1107,6 +1107,8 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
     },
     i4.AccountPage: {
       'mustChangePassword': (o) => (o as i4.AccountPage).mustChangePassword,
+      'mustEnableTotp': (o) => (o as i4.AccountPage).mustEnableTotp,
+      'restricted': (o) => (o as i4.AccountPage).restricted,
       'session': (o) => (o as i4.AccountPage).session,
       'login': (o) => (o as i4.AccountPage).login,
       'permissions': (o) => (o as i4.AccountPage).permissions,
@@ -1135,6 +1137,8 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
     },
     i5.AuditLogPage: {
       'mustChangePassword': (o) => (o as i5.AuditLogPage).mustChangePassword,
+      'mustEnableTotp': (o) => (o as i5.AuditLogPage).mustEnableTotp,
+      'restricted': (o) => (o as i5.AuditLogPage).restricted,
       'session': (o) => (o as i5.AuditLogPage).session,
       'login': (o) => (o as i5.AuditLogPage).login,
       'permissions': (o) => (o as i5.AuditLogPage).permissions,
@@ -1163,6 +1167,8 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
     },
     i6.DashboardPage: {
       'mustChangePassword': (o) => (o as i6.DashboardPage).mustChangePassword,
+      'mustEnableTotp': (o) => (o as i6.DashboardPage).mustEnableTotp,
+      'restricted': (o) => (o as i6.DashboardPage).restricted,
       'session': (o) => (o as i6.DashboardPage).session,
       'login': (o) => (o as i6.DashboardPage).login,
       'permissions': (o) => (o as i6.DashboardPage).permissions,
@@ -1191,6 +1197,8 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
     },
     i7.FilesPage: {
       'mustChangePassword': (o) => (o as i7.FilesPage).mustChangePassword,
+      'mustEnableTotp': (o) => (o as i7.FilesPage).mustEnableTotp,
+      'restricted': (o) => (o as i7.FilesPage).restricted,
       'session': (o) => (o as i7.FilesPage).session,
       'login': (o) => (o as i7.FilesPage).login,
       'permissions': (o) => (o as i7.FilesPage).permissions,
@@ -1311,6 +1319,8 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
     },
     i11.PermissionsPage: {
       'mustChangePassword': (o) => (o as i11.PermissionsPage).mustChangePassword,
+      'mustEnableTotp': (o) => (o as i11.PermissionsPage).mustEnableTotp,
+      'restricted': (o) => (o as i11.PermissionsPage).restricted,
       'session': (o) => (o as i11.PermissionsPage).session,
       'login': (o) => (o as i11.PermissionsPage).login,
       'permissions': (o) => (o as i11.PermissionsPage).permissions,
@@ -1362,6 +1372,8 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
     },
     i12.SettingsPage: {
       'mustChangePassword': (o) => (o as i12.SettingsPage).mustChangePassword,
+      'mustEnableTotp': (o) => (o as i12.SettingsPage).mustEnableTotp,
+      'restricted': (o) => (o as i12.SettingsPage).restricted,
       'session': (o) => (o as i12.SettingsPage).session,
       'login': (o) => (o as i12.SettingsPage).login,
       'permissions': (o) => (o as i12.SettingsPage).permissions,
@@ -1454,6 +1466,6 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       'lib/pages/settings_page.dart',
       'lib/src/builder/registry_builder.dart',
     ],
-    sum: '6eada00dbdc2ef718f9e4cdb641916dbf7f0b51c7b1b2d7f1ec08493132877ae',
+    sum: 'b84f74823e138bbe09d6cbc1f922e5805e9f11d3397eb1e7c7dbdaf575f269f5',
   ),
 );
