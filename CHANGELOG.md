@@ -20,6 +20,11 @@
   already written are kept (the key is stored in `files`). `audit_log.occurred_at` stays in local time: it is a
   `text` column without an offset, so mixing UTC rows with existing local ones would shift the displayed time
   and the search/retention boundaries (IGNIS-052.5).
+- Permission cache: a read that started before a package/grant change no longer writes the old permissions back
+  for 15 min after the invalidation. Invalidation bumps a per-user generation (`permgen:{login}`, TTL = cache TTL)
+  and deletes the entry in one Lua script; the cache write is a Lua compare-and-set on that generation; the retry
+  queue now retries the whole invalidation per login. The cache key is now `perm:{login}` (hash tag: both keys in one
+  Redis Cluster slot); old `perm:<login>` entries are no longer read and expire on their own (IGNIS-052.6).
 
 ## 0.5.1 — 2026-11-26
 
