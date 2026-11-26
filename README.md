@@ -153,7 +153,7 @@ second factor is built into the panel.
 |---|---|---|
 | 🧭 | **Routing** | Page lifecycle `doBeforeProcess → isAbleToSee → processData → @Action (POST only) → insertData → render`; route parameters (`/v1/items/{id}`); per-route methods, body limits and CORS; CSRF, a request deadline and secure default headers |
 | 🎨 | **Rendering** | Jinja templates with escaping by default (`Html(...)` for trusted markup), app templates override package ones, versioned static assets (`?v=`), gzip + ETag + 304 for `/assets/` |
-| 🗄️ | **Data** | ORM with auto-schema (`update \| validate \| none`) and RLS policies for every table with a `service` column; settings registry with AES-GCM-encrypted secrets; CSV, paging, sorting and date-range components |
+| 🗄️ | **Data** | ORM with auto-schema (`update \| validate \| none`) and RLS policies for every table with a `service` column (or an app tenant column: `@Entity(tenantColumn:)` + `Db.asTenant`, see [SECURITY.md](SECURITY.md#rls-by-an-app-tenant-column)); settings registry with AES-GCM-encrypted secrets; CSV, paging, sorting and date-range components |
 | 🔑 | **Auth** | Login with TOTP second factor (RFC 6238), forced password change and rate limits; accounts, permission packages, grants and denials with a panel to manage them; front-end customer accounts (password, reset token, separate session); JWT RS256 and HMAC-signed links |
 | 🏢 | **Tenancy** | Tenant resolved from `Host` once per request; a per-request transaction with `ignis.service` set locally; sessions in Redis, so every node behind the load balancer sees the same state |
 | 📦 | **Storage** | File storage on S3/MinIO, with metadata and folders in PostgreSQL |
@@ -181,7 +181,7 @@ environment:
   sdk: ^3.11.0
 dependencies:
   ignis:
-    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.4.4}
+    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.5.0}
 dev_dependencies:
   build_runner: ^2.4.0
 ```
@@ -207,6 +207,9 @@ and its template as `templates/notes.html`:
 dart pub get
 dart run build_runner build      # writes lib/ignis_registry.g.dart
 ```
+
+Under `dart run` a registry older than lib/ stops the start with the command to run;
+`IGNIS_ALLOW_STALE_REGISTRY=1` lets it start anyway with a warning. A compiled binary is not checked.
 
 **4. Pass it to the engine** — the one line Ignis cannot write for you:
 
@@ -447,7 +450,7 @@ again.
 
 **Must be unique:**
 
-- `IGNIS_NODE` — the node name in the start-up log, the owner value of background-job locks in Redis
+- `IGNIS_NODE` — the node name in the start-up log, the owner value of background-job locks in Redis (unset: a random per-process id is used for locks)
   (`lock:audit_log`), the `"node"` field of `/health` (and its `health:<node>` key) and the panel footer. It is **not** stored in the
   audit log. On SIGTERM a node deletes the `lock:*` keys that carry its name, so two nodes with the same name
   release each other's locks. Unset, it is `node` for locks and `unknown` in `/health` and the panel, and the
@@ -481,6 +484,10 @@ account) run under one PostgreSQL advisory lock. The others log
 `Ignis: waiting for start-up lock (another node is migrating or seeding)` and give up after 5 minutes. Since
 0.4.4 the app's own `seed:` callback runs **inside** the same lock, one node at a time — it still runs on every
 node, so keep it idempotent (`ON CONFLICT DO NOTHING`, `CREATE INDEX IF NOT EXISTS`) and short: other nodes wait for it.
+The seed is **not exactly-once**: N nodes run it N times (one after another), and a node that fails or is killed
+mid-callback leaves partial work for the next one to redo — write it so a repeated or half-finished run is harmless.
+An exception in the callback stops that node's start (non-zero exit, the lock is released); the HTTP port opens
+only after the node has left the lock (`test/seed_many_nodes_pg_test.dart`).
 
 Recommended split ([SECURITY.md → Runtime database role](SECURITY.md#runtime-database-role)):
 
@@ -809,7 +816,10 @@ All configuration comes from environment variables read by the engine. The requi
 | `IGNIS_REDIS_PASS` | — | Redis password |
 | `IGNIS_REDIS_TLS` | — | `1` = TLS to Redis, verified against system CAs |
 | `IGNIS_PORT` | `8080` | HTTP listen port |
-| `IGNIS_NODE` | `node` | node name in the start-up log, Redis locks, `/health` and the panel footer (`unknown` there when unset); must be unique per node (warning when unset) — see [Running a cluster](#-running-a-cluster) |
+| `IGNIS_NODE` | — | node name in the start-up log (`node` when unset), `/health` and the panel footer (`unknown` there when unset); must be unique per node (warning when unset) — see [Running a cluster](#-running-a-cluster). Also the owner prefix of Redis lock values (`Redis.lockNode`); when unset each process uses a random `hostname-pid-random` instead, so nodes never release each other's locks |
+| `IGNIS_REQUIRE_PLATFORM_2FA` | on | platform accounts (service 0) without TOTP get a restricted session: only `/admin/account` (set up the second factor, change the password) and sign-out, every other page redirects there. **On by default since 0.5.0** — enable TOTP on platform accounts before upgrading; `0` turns it off |
+| `IGNIS_REQUIRE_STAFF_2FA` | unset | `1` = the same restriction for every staff account in every service |
+| `IGNIS_ALLOW_STALE_REGISTRY` | unset | `1` = a JIT start with a stale `lib/ignis_registry.g.dart` (lib/ changed since the last `build_runner build`) only warns instead of stopping the node |
 | `IGNIS_REQUIRE_RUNTIME_ROLE` | unset | `1` = refuse to start (before any DDL) when the database role owns engine tables (serving nodes on a runtime role; `tool/runtime_role.sql`); any other non-empty value refuses to start |
 | `IGNIS_SCHEMA` | `update` | `update` creates tables and columns, `validate` and `none` only check. Serving nodes: `validate` on a runtime role without table ownership ([SECURITY.md](SECURITY.md#runtime-database-role)) |
 | `IGNIS_ASSETS` | `web/assets` | directory with the theme's static files (`/assets/…`) |

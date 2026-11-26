@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.5.0 — 2026-11-26
+
+### Documentation
+
+- README env table: `IGNIS_REQUIRE_PLATFORM_2FA`, `IGNIS_REQUIRE_STAFF_2FA`, `IGNIS_ALLOW_STALE_REGISTRY` added;
+  the `IGNIS_NODE` row describes `Redis.lockNode` (random per-process lock owner when unset).
+- SECURITY.md: enabling TOTP describes what the account page shows (secret as text + `otpauth://` link, no QR);
+  the runtime-role section spells out RLS vs runtime role vs parameterised queries and recommends
+  `IGNIS_SCHEMA=validate` + `IGNIS_REQUIRE_RUNTIME_ROLE=1` on serving nodes with a separate migration step.
+- SECURITY.md / QUALITY.md: Jinja notes re-checked on 0.7.2 (no autoescape, slicing, `import` with `extends`,
+  positional macro arguments, `.get()` — all unchanged).
+
+### Added
+
+- `Redis.runExclusive(..., maxRun:)` / `Ignis.every(..., maxRun:)` (default null = no limit): after `maxRun` the
+  run's `stillOwner()` turns false and the keep-alive stops extending the lock (it expires after `ttl`), with a
+  warning — a hung body no longer holds a job forever.
+- `Redis.lockNode`: the owner prefix of lock values — `IGNIS_NODE`, or, when unset/empty, a random per-process id
+  (`hostname-pid-random`). Nodes without `IGNIS_NODE` no longer all use the prefix `node`, so `releaseLocks` on one
+  node's shutdown no longer deletes the locks of the others. Used by `runExclusive`, the audit-log lock and shutdown;
+  the displayed node name (log, `/health`, panel) is unchanged.
+- Test `test/seed_many_nodes_pg_test.dart`: the real `Ignis.start(seed:)` on two processes — seed callbacks never
+  overlap, every node runs its own, the HTTP port opens only after the start-up lock; a throwing seed exits the
+  node with an error and the other node starts. README (Schema with many nodes): the seed is not exactly-once.
+- Background jobs: `Redis.runExclusive(name, ttl, body)` — `lock:<name>` with a per-run token, keep-alive every
+  ttl/3, owner-only release; `body` gets `stillOwner()` (false once the lock is lost). `Ignis.every(name, interval, ttl,
+  body)` runs it on a timer (errors logged, no overlap); `Ignis.stopJobs()` runs at node shutdown.
+  `Redis.confirmExclusive(name)` checks ownership in Redis right now (for long runs, before each batch).
+  `Redis.abandonExclusive({wait})` turns `stillOwner()` false for active runs, waits for them and returns the tokens
+  of runs still going; node shutdown passes them to `Redis.releaseLocks(node, keep: ...)`, so a run still going keeps
+  its lock (TTL frees it) instead of being doubled by another node.
+- RLS by an app tenant column: `@Entity(..., tenantColumn: 'tenant')` (text or int) and `Db.asTenant(tenant, body)`
+  (`ignis.tenant`, local to one transaction). No tenant = 0 rows; only the system context sees all; `Schema.checkRls`
+  covers the new tables. `EntityMeta` gains an optional `tenantColumn` (regenerate the registry). Entities without it
+  are unchanged.
+- `Db.bindTenant(tenant)` binds an app tenant to the current request transaction after authentication (request pages
+  run inside `Db.inContext`, where `Db.asTenant` throws); one-way, survives `Db.release`/`commit`.
+
+### Changed (breaking)
+
+- Required second factor for platform accounts (service 0), enforced in `AdminPage.isAbleToSee`, not in the UI: a
+  platform account without TOTP gets a restricted session, like `must_change_password` — only `/admin/account`
+  (actions `password`, `totp_start`, `totp_enable`) and sign-out; every other page and action redirects to
+  `/admin/account`. With `must_change_password` too, the password comes first. Enabling TOTP lifts it at once. The
+  account cannot disable its own required factor (only `dart run ignis:account disable-2fa <login>` or another
+  administrator in the permissions panel). **Migration:** enable TOTP on every platform account (sign in → "My account"
+  → second factor) before upgrading, or set `IGNIS_REQUIRE_PLATFORM_2FA=0` to keep the old behaviour.
+  `IGNIS_REQUIRE_STAFF_2FA=1` applies the same to every staff account. `Db.account` returns a fifth field (has TOTP);
+  `AdminPage` gains `mustEnableTotp`, `restricted`, `totpRequired(service)`. Test runners (`tool/pg_test.sh`) default
+  to `IGNIS_REQUIRE_PLATFORM_2FA=0`.
+- A stale `lib/ignis_registry.g.dart` (lib/ changed since the last `build_runner build`) now stops a JIT start with a
+  `StateError` instead of one warning. `IGNIS_ALLOW_STALE_REGISTRY=1` restores the old warning-only behaviour. AOT
+  binaries are unchanged (no sources, no check). `Ignis.resolveRegistry` gains an optional `env`.
+
+### Fixed
+
+- `rateLimitAddress`: one client → one attempt-limit key in every spelling. IPv4-mapped IPv6 (`::ffff:10.0.0.1`,
+  `::ffff:a00:1` — what a dual-stack socket reports for IPv4 clients) now counts as plain IPv4; before, the hex form
+  collapsed ALL mapped clients into one shared `::/64` key, and the dotted form keyed apart from `10.0.0.1`. Zone
+  (`%eth0`), `[…]` and a port (`1.2.3.4:5678`, `[::1]:443` in X-Forwarded-For) are dropped. Existing counters re-key.
+
+- A failed permission/settings cache invalidation (Redis blip) is logged and retried in the background until it goes
+  through, instead of leaving a revoked permission cached for up to 15 min. Other swallowed Redis errors in
+  `Permissions` are logged to stderr (at most once a minute per kind).
+- `/health` writes its `health:<node>` probe with a 60 s TTL instead of a key that never expires.
+
 ## 0.4.4 — 2026-11-26
 
 ### Fixed

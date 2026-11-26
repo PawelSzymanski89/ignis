@@ -79,12 +79,30 @@ bool probeAllowed(String connection, String? xff, List<String> trusted) {
 }
 
 /// Address for attempt-limit keys: IPv6 truncated to /64 (what one subscriber gets — the full address
-/// gave them 2^64 fresh counters), IPv4 and non-addresses unchanged.
+/// gave them 2^64 fresh counters), IPv4 in canonical form, non-addresses unchanged. One client → one key
+/// in every spelling: IPv4-mapped (`::ffff:10.0.0.1`, `::FFFF:a00:1` — what a dual-stack socket reports)
+/// counts as plain IPv4, the zone (`%eth0`), `[…]` and a port (`1.2.3.4:5678`, `[::1]:443` from some proxies) are dropped.
 String rateLimitAddress(String ip) {
-  final a = _bytes(ip);
-  if (a == null || a.length != 16) return ip;
+  final a = _canonicalBytes(ip);
+  if (a == null) return ip;
+  if (a.length == 4) return InternetAddress.fromRawAddress(Uint8List.fromList(a)).address;
   final b = [...a.take(8), ...List.filled(8, 0)];
   return '${InternetAddress.fromRawAddress(Uint8List.fromList(b)).address}/64';
+}
+
+List<int>? _canonicalBytes(String ip) {
+  var s = ip.trim();
+  final v4port = RegExp(r'^(\d+\.\d+\.\d+\.\d+):\d+$').firstMatch(s);
+  if (v4port != null) s = v4port.group(1)!;
+  final bracket = RegExp(r'^\[([^\]]+)\](:\d+)?$').firstMatch(s);
+  if (bracket != null) s = bracket.group(1)!;
+  final zone = s.indexOf('%');
+  if (zone > 0) s = s.substring(0, zone);
+  if (s.toLowerCase().startsWith('::ffff:') && s.contains('.')) s = s.substring(7);
+  final b = InternetAddress.tryParse(s)?.rawAddress;
+  if (b == null) return null;
+  if (b.length == 16 && b.take(10).every((x) => x == 0) && b[10] == 0xff && b[11] == 0xff) return b.sublist(12);
+  return b;
 }
 
 bool _trusted(String ip, Iterable<String> trusted) {

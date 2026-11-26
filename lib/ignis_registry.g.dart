@@ -32,6 +32,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       cached: false,
       ttl: 0,
       unique: const [],
+      tenantColumn: null,
       ctor: i0.AuditLogEntry.new,
       fields: [
         ig.FieldMeta(
@@ -117,6 +118,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['domain'],
       ],
+      tenantColumn: null,
       ctor: i3.Domain.new,
       fields: [
         ig.FieldMeta(
@@ -167,6 +169,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['key'],
       ],
+      tenantColumn: null,
       ctor: i2.FileRecord.new,
       fields: [
         ig.FieldMeta(
@@ -259,6 +262,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['path', 'service'],
       ],
+      tenantColumn: null,
       ctor: i2.Folder.new,
       fields: [
         ig.FieldMeta(
@@ -321,6 +325,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       cached: false,
       ttl: 0,
       unique: const [],
+      tenantColumn: null,
       ctor: i1.Package.new,
       fields: [
         ig.FieldMeta(
@@ -364,6 +369,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['package_id', 'permission'],
       ],
+      tenantColumn: null,
       ctor: i1.PackagePermission.new,
       fields: [
         ig.FieldMeta(
@@ -398,6 +404,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       cached: false,
       ttl: 0,
       unique: const [],
+      tenantColumn: null,
       ctor: i1.Permission.new,
       fields: [
         ig.FieldMeta(
@@ -427,6 +434,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['slug'],
       ],
+      tenantColumn: null,
       ctor: i3.Service.new,
       fields: [
         ig.FieldMeta(
@@ -489,6 +497,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       cached: false,
       ttl: 0,
       unique: const [],
+      tenantColumn: null,
       ctor: i1.Setting.new,
       fields: [
         ig.FieldMeta(
@@ -530,6 +539,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       cached: false,
       ttl: 0,
       unique: const [],
+      tenantColumn: null,
       ctor: i1.User.new,
       fields: [
         ig.FieldMeta(
@@ -601,6 +611,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['username', 'package_id'],
       ],
+      tenantColumn: null,
       ctor: i1.UserPackage.new,
       fields: [
         ig.FieldMeta(
@@ -637,6 +648,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       unique: const [
         const ['username', 'permission'],
       ],
+      tenantColumn: null,
       ctor: i1.UserPermission.new,
       fields: [
         ig.FieldMeta(
@@ -1095,6 +1107,8 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
     },
     i4.AccountPage: {
       'mustChangePassword': (o) => (o as i4.AccountPage).mustChangePassword,
+      'mustEnableTotp': (o) => (o as i4.AccountPage).mustEnableTotp,
+      'restricted': (o) => (o as i4.AccountPage).restricted,
       'session': (o) => (o as i4.AccountPage).session,
       'login': (o) => (o as i4.AccountPage).login,
       'permissions': (o) => (o as i4.AccountPage).permissions,
@@ -1123,6 +1137,8 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
     },
     i5.AuditLogPage: {
       'mustChangePassword': (o) => (o as i5.AuditLogPage).mustChangePassword,
+      'mustEnableTotp': (o) => (o as i5.AuditLogPage).mustEnableTotp,
+      'restricted': (o) => (o as i5.AuditLogPage).restricted,
       'session': (o) => (o as i5.AuditLogPage).session,
       'login': (o) => (o as i5.AuditLogPage).login,
       'permissions': (o) => (o as i5.AuditLogPage).permissions,
@@ -1151,6 +1167,8 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
     },
     i6.DashboardPage: {
       'mustChangePassword': (o) => (o as i6.DashboardPage).mustChangePassword,
+      'mustEnableTotp': (o) => (o as i6.DashboardPage).mustEnableTotp,
+      'restricted': (o) => (o as i6.DashboardPage).restricted,
       'session': (o) => (o as i6.DashboardPage).session,
       'login': (o) => (o as i6.DashboardPage).login,
       'permissions': (o) => (o as i6.DashboardPage).permissions,
@@ -1179,6 +1197,8 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
     },
     i7.FilesPage: {
       'mustChangePassword': (o) => (o as i7.FilesPage).mustChangePassword,
+      'mustEnableTotp': (o) => (o as i7.FilesPage).mustEnableTotp,
+      'restricted': (o) => (o as i7.FilesPage).restricted,
       'session': (o) => (o as i7.FilesPage).session,
       'login': (o) => (o as i7.FilesPage).login,
       'permissions': (o) => (o as i7.FilesPage).permissions,
@@ -1299,6 +1319,8 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
     },
     i11.PermissionsPage: {
       'mustChangePassword': (o) => (o as i11.PermissionsPage).mustChangePassword,
+      'mustEnableTotp': (o) => (o as i11.PermissionsPage).mustEnableTotp,
+      'restricted': (o) => (o as i11.PermissionsPage).restricted,
       'session': (o) => (o as i11.PermissionsPage).session,
       'login': (o) => (o as i11.PermissionsPage).login,
       'permissions': (o) => (o as i11.PermissionsPage).permissions,
@@ -1350,6 +1372,8 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
     },
     i12.SettingsPage: {
       'mustChangePassword': (o) => (o as i12.SettingsPage).mustChangePassword,
+      'mustEnableTotp': (o) => (o as i12.SettingsPage).mustEnableTotp,
+      'restricted': (o) => (o as i12.SettingsPage).restricted,
       'session': (o) => (o as i12.SettingsPage).session,
       'login': (o) => (o as i12.SettingsPage).login,
       'permissions': (o) => (o as i12.SettingsPage).permissions,
@@ -1394,6 +1418,9 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       'lib/engine/customer_page.dart',
       'lib/engine/db.dart',
       'lib/engine/engine.dart',
+      'lib/engine/engine_cors.dart',
+      'lib/engine/engine_headers.dart',
+      'lib/engine/engine_language.dart',
       'lib/engine/format.dart',
       'lib/engine/i18n.dart',
       'lib/engine/ignis.dart',
@@ -1439,6 +1466,6 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       'lib/pages/settings_page.dart',
       'lib/src/builder/registry_builder.dart',
     ],
-    sum: '89af5713547da502dd137d580162a3e0a25f136494ab1f0982538dd45c16e82c',
+    sum: '834d7a47d09ffb1b7af82b8a5e6d2eb01d8fcee5ce29e0622fc435bc81c05912',
   ),
 );

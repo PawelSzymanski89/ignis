@@ -255,6 +255,7 @@ class _Emitter {
       );
     }
 
+    final tenantColumn = entity.peek('tenantColumn') == null ? 'null' : _str(entity.read('tenantColumn').stringValue);
     return '''
     ig.EntityMeta(
       typeName: ${_str(f.name)},
@@ -265,6 +266,7 @@ class _Emitter {
       cached: ${cached != null},
       ttl: ${cached == null ? 0 : ConstantReader(cached).read('ttl').intValue},
       unique: ${_literal(entity.read('unique').objectValue)},
+      tenantColumn: $tenantColumn,
       ctor: $ref.new,
       fields: [${fields.join(', ')}],
     ),''';

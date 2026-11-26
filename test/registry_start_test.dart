@@ -1,5 +1,6 @@
 // Ignis.resolveRegistry (Ignis.start): no registry → StateError with the exact commands; a registry → core + app;
-// a fingerprint that no longer matches lib/ → ONE warning (build/watch commands) and the start goes on; no sources
+// a fingerprint that no longer matches lib/ → start refused (StateError), or with IGNIS_ALLOW_STALE_REGISTRY=1
+// ONE warning (build/watch commands) and the start goes on; no sources
 // on disk (as in AOT) → the check is skipped. Bez bazy.
 import 'dart:io';
 
@@ -80,10 +81,17 @@ void main() {
   print('resolveRegistry with a stale fingerprint:');
   warnings.clear();
   final stale = Fingerprint(package: 'ignis', sources: ignisRegistry.fingerprint!.sources, sum: '0' * 64);
-  final started = Ignis.resolveRegistry(
-      IgnisRegistry(entities: const [], pages: [_appPage()], fingerprint: stale),
-      warn: warnings.add);
-  check('exactly one warning, and the start goes on with the registry as it is',
+  final staleApp = IgnisRegistry(entities: const [], pages: [_appPage()], fingerprint: stale);
+  Object? staleError;
+  try {
+    Ignis.resolveRegistry(staleApp, warn: warnings.add, env: const {});
+  } catch (e) {
+    staleError = e;
+  }
+  check('stale registry → start refused (StateError with the build command)',
+      staleError is StateError && '$staleError'.contains('out of date') && '$staleError'.contains('build_runner'));
+  final started = Ignis.resolveRegistry(staleApp, warn: warnings.add, env: const {'IGNIS_ALLOW_STALE_REGISTRY': '1'});
+  check('IGNIS_ALLOW_STALE_REGISTRY=1 → exactly one warning, and the start goes on with the registry as it is',
       warnings.length == 1 && warnings.single.contains('out of date') && started.pages.any((p) => p.typeName == 'StartAppPage'));
 
   print('no sources (AOT):');

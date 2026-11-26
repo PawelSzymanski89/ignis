@@ -14,6 +14,7 @@
 //  uncompressed (CSRF token next to echoed input = BREACH) — gzip for them is the proxy's decision.
 // ============================================================================
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -60,6 +61,37 @@ class Ignis {
 
   /// Where "Back" on the error page leads (an app with its own panel gives its dashboard).
   static String errorBackUrl = '/admin';
+
+  static final List<Timer> _jobs = [];
+
+  /// Background job: every [interval] runs [body] under [Redis.runExclusive] (one node at a time cluster-wide,
+  /// no overlap on this node). Errors are logged and the timer keeps going. Timers stop at node shutdown
+  /// ([stopJobs]). [maxRun] — see [Redis.runExclusive]. Returns the timer (cancel to stop one job).
+  static Timer every(String name, Duration interval, Duration ttl,
+      Future<void> Function(bool Function() stillOwner) body, {Duration? maxRun}) {
+    var running = false;
+    final t = Timer.periodic(interval, (_) async {
+      if (running) return;
+      running = true;
+      try {
+        await Redis.runExclusive(name, ttl, body, maxRun: maxRun);
+      } catch (e) {
+        stderr.writeln('Ignis job $name — $e');
+      } finally {
+        running = false;
+      }
+    });
+    _jobs.add(t);
+    return t;
+  }
+
+  /// Cancels every [every] timer (called on shutdown before the locks are released).
+  static void stopJobs() {
+    for (final t in _jobs) {
+      t.cancel();
+    }
+    _jobs.clear();
+  }
 
   /// Why the node must not start with this `IGNIS_TRUSTED_PROXIES`, or null. Unset is refused: behind a
   /// proxy that nobody declared, every client has the proxy address — sign-in limits lock everyone out
@@ -119,12 +151,20 @@ class Ignis {
   /// files, so the generated registry is how the app's pages and entities reach the engine.
   ///
   /// In JIT the app's [Fingerprint] is checked against the current lib/ sources, and a stale
-  /// lib/ignis_registry.g.dart (a class added/changed after the last build) gives ONE warning
-  /// ([buildCommand] / [watchCommand]) before the node runs on what it has. AOT has no sources — check skipped.
-  static IgnisRegistry resolveRegistry(IgnisRegistry? app, {void Function(String) warn = _warn}) {
+  /// lib/ignis_registry.g.dart (a class added/changed after the last build) stops the start with a [StateError]
+  /// ([buildCommand] / [watchCommand]); with `IGNIS_ALLOW_STALE_REGISTRY=1` in [env] it is ONE warning and the node
+  /// runs on what it has. AOT has no sources — check skipped.
+  static IgnisRegistry resolveRegistry(IgnisRegistry? app,
+      {void Function(String) warn = _warn, Map<String, String>? env}) {
     if (app == null) throw StateError(noRegistryError);
     final stale = staleRegistryWarning(app.fingerprint);
-    if (stale != null) warn(stale);
+    if (stale != null) {
+      if ((env ?? Platform.environment)['IGNIS_ALLOW_STALE_REGISTRY'] != '1') {
+        throw StateError(stale.replaceFirst('the node runs on the registry as generated', 'start refused '
+            '(IGNIS_ALLOW_STALE_REGISTRY=1 runs on it anyway)'));
+      }
+      warn(stale);
+    }
     return core.ignisRegistry.merge(app);
   }
 
@@ -135,7 +175,7 @@ class Ignis {
   /// [registry] — required: the app's `ignisRegistry` from `lib/ignis_registry.g.dart`, written by
   /// `dart run build_runner build` (or `watch`) with only `build_runner` in `dev_dependencies`; the core pages
   /// and entities are merged into it. Without it the node stops with a [StateError] ([noRegistryError]) listing
-  /// those steps; a stale one gives one warning under `dart run` — see [resolveRegistry].
+  /// those steps; a stale one stops the start under `dart run` — see [resolveRegistry].
   /// [templates] — app template directories (they win over the package).
   /// [appAssets] — app static directories under `/assets/`, searched before `IGNIS_ASSETS`.
   /// [extraCsp] — sources added to the base Content-Security-Policy per directive ([Engine.buildCsp]).
@@ -225,8 +265,12 @@ class Ignis {
       stdout.writeln('Ignis: $s — finishing ${shutdown.inFlight} requests (20 s limit)');
       final clean = await shutdown.close(server);
       if (!clean) stderr.writeln('Ignis: requests aborted after 20 s');
+      stopJobs();
+      // running bodies see stillOwner() false and get a moment to stop; locks of runs still going are kept
+      // (TTL frees them), or another node would run the same job alongside
+      final stillRunning = await Redis.abandonExclusive();
       try {
-        await Redis.releaseLocks(node);
+        await Redis.releaseLocks(Redis.lockNode, keep: stillRunning);
       } catch (e) {
         stderr.writeln('Ignis: releasing locks — $e');
       }

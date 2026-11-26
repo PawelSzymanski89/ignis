@@ -17,6 +17,8 @@ import 'dart:io';
 
 import 'package:redis/redis.dart';
 
+import 'crypto.dart';
+
 class Redis {
   static RedisConnection? _rc;
   static Command? _cmd;
@@ -126,14 +128,112 @@ class Redis {
             seconds.toString(),
           ])) == 1;
 
+  /// Runs [body] on at most one node at a time under the lock `lock:[name]`. Returns false (body not run) when
+  /// another run holds it. The lock is taken with a per-run token `node:<random>` and kept alive every ttl/3
+  /// (compare-and-expire); when the keep-alive finds the lock gone or taken over (or Redis fails), `stillOwner()`
+  /// turns false for good and [body] should stop at its next check. Released in finally only if still ours.
+  /// [body] errors propagate after the release.
+  /// Owner prefix of this process's lock values: `IGNIS_NODE`, or — when it is unset/empty — a random id generated
+  /// once per process (`hostname-pid-random`), so nodes without `IGNIS_NODE` never share the prefix `node` and
+  /// [releaseLocks] of one never deletes another's locks. Only for lock ownership; the displayed node name is
+  /// still `IGNIS_NODE`.
+  static final String lockNode = _lockNode();
+  static String _lockNode() {
+    final env = Platform.environment['IGNIS_NODE'] ?? '';
+    if (env.isNotEmpty) return env;
+    String host;
+    try {
+      host = Platform.localHostname;
+    } catch (_) {
+      host = 'host';
+    }
+    // no ':' — it separates the prefix from the run token
+    return '${host.replaceAll(':', '_')}-$pid-${Crypto.randomToken(4)}';
+  }
+
+  static Future<bool> runExclusive(
+      String name, Duration ttl, Future<void> Function(bool Function() stillOwner) body, {Duration? maxRun}) async {
+    final key = 'lock:$name';
+    final token = '$lockNode:${Crypto.randomToken(8)}';
+    final seconds = ttl.inSeconds < 1 ? 1 : ttl.inSeconds;
+    if (!await setNxEx(key, token, seconds)) return false;
+    var owner = true;
+    var beating = false;
+    _confirms[name] = () async {
+      try {
+        if (owner && !await expireIfEqual(key, token, seconds)) owner = false;
+      } catch (_) {
+        owner = false;
+      }
+      return owner;
+    };
+    final beat = Timer.periodic(Duration(milliseconds: seconds * 1000 ~/ 3), (_) async {
+      if (!owner || beating) return;
+      beating = true;
+      try {
+        if (!await expireIfEqual(key, token, seconds)) owner = false;
+      } catch (_) {
+        owner = false; // ownership unknown — fail safe, the TTL may run out meanwhile
+      } finally {
+        beating = false;
+      }
+    });
+    final limit = maxRun == null
+        ? null
+        : Timer(maxRun, () {
+            if (!owner) return;
+            owner = false;
+            stderr.writeln('Ignis job $name — exceeded maxRun $maxRun; no longer owner, the lock expires after $ttl');
+          });
+    final done = Completer<void>();
+    final run = _Run(token, () => owner = false, done.future);
+    _runs.add(run);
+    try {
+      await body(() => owner);
+    } finally {
+      beat.cancel();
+      limit?.cancel();
+      _confirms.remove(name);
+      _runs.remove(run);
+      try {
+        await delIfEqual(key, token);
+      } catch (_) {} // the TTL frees it anyway
+      done.complete();
+    }
+    return true;
+  }
+
+  static final _confirms = <String, Future<bool> Function()>{};
+  static final _runs = <_Run>{};
+
+  /// Shutdown: turns `stillOwner()` (and [confirmExclusive]) false for every [runExclusive] run active in this
+  /// isolate and waits up to [wait] for them to finish (each releases its own lock). Returns the lock tokens of
+  /// runs still going after [wait] — pass them to [releaseLocks] as `keep`, or another node would take the lock
+  /// and run the same job alongside (their TTL frees them later).
+  static Future<List<String>> abandonExclusive({Duration wait = const Duration(seconds: 10)}) async {
+    final runs = _runs.toList();
+    for (final r in runs) {
+      r.revoke();
+    }
+    if (runs.isEmpty) return const [];
+    await Future.wait([for (final r in runs) r.done]).timeout(wait, onTimeout: () => const []);
+    return [for (final r in _runs) r.token];
+  }
+
+  /// Direct ownership check for a [runExclusive] run of [name] in this isolate: compare-and-expire in Redis now
+  /// (not the keep-alive's last result). Use before each side-effecting batch of a long run. False when no run
+  /// of [name] is active here or the lock is gone / taken over (then `stillOwner()` turns false too).
+  static Future<bool> confirmExclusive(String name) => _confirms[name]?.call() ?? Future.value(false);
+
   /// DEL key (e.g. sign-out).
   static Future<void> del(String key) => cmd(['DEL', key]);
 
   /// Releases `lock:*` locks held by [node] — on shutdown, so background jobs start on another node without
   /// waiting for the TTL. Matches both the value == node name (plain locks) and the value `node:<run token>`
-  /// (locks taken with a per-run token via [delIfEqual]).
+  /// (locks taken with a per-run token via [delIfEqual]), except values in [keep] (runs still going, see
+  /// [abandonExclusive]).
   /// SCAN in batches, not KEYS — KEYS blocked Redis (and the sessions of all nodes) for the duration of the scan.
-  static Future<void> releaseLocks(String node) async {
+  static Future<void> releaseLocks(String node, {Iterable<String> keep = const []}) async {
     var cursor = '0';
     do {
       final r = (await cmd(['SCAN', cursor, 'MATCH', 'lock:*', 'COUNT', '500'])) as List;
@@ -142,12 +242,13 @@ class Redis {
       if (keys.isEmpty) continue;
       await cmd([
         'EVAL',
-        "local p = ARGV[1] .. ':' "
+        "local p = ARGV[1] .. ':' local keep = {} for i = 2, #ARGV do keep[ARGV[i]] = true end "
             "for _, k in ipairs(KEYS) do local v = redis.call('GET', k) "
-            "if v == ARGV[1] or (v and v:sub(1, #p) == p) then redis.call('DEL', k) end end",
+            "if v and not keep[v] and (v == ARGV[1] or v:sub(1, #p) == p) then redis.call('DEL', k) end end",
         '${keys.length}',
         ...keys,
         node,
+        ...keep,
       ]);
     } while (cursor != '0');
   }
@@ -164,4 +265,11 @@ class Redis {
   /// SMEMBERS key → list.
   static Future<List<String>> smembers(String key) async =>
       ((await cmd(['SMEMBERS', key])) as List? ?? const []).cast<String>();
+}
+
+class _Run {
+  _Run(this.token, this.revoke, this.done);
+  final String token;
+  final void Function() revoke;
+  final Future<void> done;
 }

@@ -35,6 +35,10 @@ import 'upload.dart';
 import 'session.dart';
 import 'customer_accounts.dart';
 
+part 'engine_cors.dart';
+part 'engine_headers.dart';
+part 'engine_language.dart';
+
 /// API request body as text. When [gzipped], inflates it while counting the
 /// size: a zip bomb stops at [limit] before it reaches memory.
 /// Throws [UploadTooLarge] when over the limit, [FormatException] on broken gzip.
@@ -196,20 +200,10 @@ class Engine {
   static Duration routeDeadline(Page? meta) =>
       meta?.maxBody == null && shortDeadline < requestDeadline ? shortDeadline : requestDeadline;
 
-  /// HSTS only on request (`IGNIS_HSTS=1`): enabled behind a proxy without TLS it would lock the domain for a year.
-  static final _hsts = Platform.environment['IGNIS_HSTS'] == '1';
-
   /// Headers of every node response (pages, static files, errors) — without relying on proxy config.
   /// SAMEORIGIN, not DENY: the panel embeds its own previews in iframes.
-  static void securityHeaders(HttpHeaders h) {
-    h
-      ..set('X-Content-Type-Options', 'nosniff')
-      ..set('Referrer-Policy', 'strict-origin-when-cross-origin')
-      ..set('X-Frame-Options', 'SAMEORIGIN')
-      ..set('Cross-Origin-Opener-Policy', 'same-origin')
-      ..set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
-    if (_hsts) h.set('Strict-Transport-Security', 'max-age=31536000');
-  }
+  /// HSTS only on request (`IGNIS_HSTS=1`). Implementation: engine_headers.dart.
+  static void securityHeaders(HttpHeaders h) => _securityHeaders(h);
 
   /// CSP of every HTML response (pages, errors, static .html) — the `<meta>` in layouts stays as a
   /// fallback, but it does not cover `frame-ancestors` or pages on their own layouts.
@@ -219,49 +213,10 @@ class Engine {
   /// The same policy for the layouts' `<meta>` — a meta CSP ignores `frame-ancestors`.
   static String get cspMeta => csp.replaceFirst(RegExp(r"; frame-ancestors [^;]*$"), '');
 
-  static const _cspBase = <String, List<String>>{
-    'default-src': ["'self'"],
-    'script-src': ["'self'"],
-    'style-src': ["'self'", "'unsafe-inline'"],
-    'img-src': ["'self'", 'data:'],
-    'font-src': ["'self'", 'data:'],
-    'connect-src': ["'self'"],
-    'object-src': ["'none'"],
-    'base-uri': ["'self'"],
-    'form-action': ["'self'"],
-  };
-  static const _cspDirectives = {
-    'default-src', 'script-src', 'style-src', 'img-src', 'font-src', 'connect-src', 'object-src', 'base-uri',
-    'form-action', 'frame-ancestors', 'media-src', 'frame-src', 'worker-src', 'child-src', 'manifest-src',
-    'script-src-elem', 'script-src-attr', 'style-src-elem', 'style-src-attr',
-  };
-  static final _cspKeyword = RegExp(r"^'(self|unsafe-inline|unsafe-eval|wasm-unsafe-eval|strict-dynamic|"
-      r"unsafe-hashes|report-sample|(nonce|sha256|sha384|sha512)-[A-Za-z0-9+/_=-]+)'$");
-  static final _cspHost = RegExp(r'^[A-Za-z0-9.*:/_%~+@\[\]-]+$');
-
   /// The base policy plus [extra] sources per directive (e.g. `{'img-src': ['https://cdn.example.com']}`).
   /// Throws [ArgumentError] on an unknown directive, a malformed source, `'none'`, or
   /// `'unsafe-inline'`/`'unsafe-eval'` in a `script-src*` directive (`'wasm-unsafe-eval'` is allowed).
-  static String buildCsp(Map<String, List<String>> extra) {
-    final policy = {for (final e in _cspBase.entries) e.key: [...e.value]};
-    for (final MapEntry(key: name, value: sources) in extra.entries) {
-      if (!_cspDirectives.contains(name)) throw ArgumentError.value(name, 'extraCsp', 'unknown CSP directive');
-      for (final s in sources) {
-        if (!_cspKeyword.hasMatch(s) && !_cspHost.hasMatch(s)) {
-          throw ArgumentError.value(s, 'extraCsp[$name]', 'invalid CSP source');
-        }
-        if (name.startsWith('script-src') && (s == "'unsafe-inline'" || s == "'unsafe-eval'")) {
-          throw ArgumentError.value(s, 'extraCsp[$name]', 'not allowed in script directives');
-        }
-        final list = policy[name] ??= [];
-        list.remove("'none'");
-        if (!list.contains(s)) list.add(s);
-      }
-    }
-    final ancestors = ["'self'", ...?policy.remove('frame-ancestors')?.where((s) => s != "'self'")];
-    return [for (final e in policy.entries) '${e.key} ${e.value.join(' ')}', 'frame-ancestors ${ancestors.join(' ')}']
-        .join('; ');
-  }
+  static String buildCsp(Map<String, List<String>> extra) => _buildCsp(extra);
 
   /// Id of the current request (from `guarded`), or null outside a request.
   static String? get requestId => Zone.current[#ignisRequestId] as String?;
@@ -271,401 +226,435 @@ class Engine {
       'Ignis $method $path $code ${ms}ms id=$id';
 
   /// Handles one HTTP request from start until the response is written.
+  /// Each step returns false when it has already written the response (error, redirect, preflight).
+  /// The order of the steps is the order of the security checks — do not reorder.
   static Future<void> handle(HttpRequest req,
       {String? overridePath, Map<String, String>? extraParams}) async {
-    final res = req.response;
-    Future<void> Function()? errorEntry;
-    var apiBytes = 0; // share of [apiBodyBudget], held until the request is handled
-    void reserve(int n) {
-      if (_apiBodyInFlight + n > apiBodyBudget) throw const Overloaded();
-      _apiBodyInFlight += n;
-      apiBytes += n;
-    }
-
+    final r = _Request(req, overridePath ?? req.uri.path);
     try {
-      final path = overridePath ?? req.uri.path;
-
-      final route = PageRegistry.match(path);
-      final api = PageRegistry.underApi(path);
-      // the deadline is set by [guarded]; outside it (null) no timer that would outlive the request
-      if (res.deadline != null) res.deadline = routeDeadline(route?.meta);
-      // the API client is an SDK, not a browser — JSON {"error": …}, no HTML page
-      final language = requestLanguage(req);
-      Future<void> error(int code, String kind, {String detail = ''}) async {
-        if (!api) return errorPage(res, code, kind, language: language, detail: detail);
-        await apiError(res, code);
-      }
-
-      // unknown path under the API prefix — 404 without asking the database for the tenant
-      if (api && route == null) return await apiError(res, HttpStatus.notFound);
-
-      // Service from the domain. An unknown domain does NOT get a default tenant —
-      // guessing here would mean showing someone another tenant's data.
-      // Technical routes (health probe) are skipped: they are called by IP, without a domain.
-      TenantContext context;
-      if (route?.meta.technical ?? false) {
-        // The probe answers only loopback and a trusted proxy (by socket address, not by Host) —
-        // everyone else does not learn the state of the database, Redis or the node name.
-        if (!probeAllowed(req.connectionInfo?.remoteAddress.address ?? '',
-            req.headers.value('X-Forwarded-For'), trustedProxies)) {
-          res.statusCode = HttpStatus.notFound;
-          await res.close();
-          return;
-        }
-        context = TenantContext.platformContext;
-      } else {
-        final k = await Tenants.fromHost(req.headers.host);
-        if (k == null) {
-          await error(HttpStatus.notFound, 'unknown_domain');
-          return;
-        }
-        if (!k.active) {
-          await error(HttpStatus.paymentRequired, 'inactive', detail: k.reason);
-          return;
-        }
-        context = k;
-      }
-
-      // The panel lives under `admin.<domain>`, the front under the bare domain. Entering
-      // /admin from the front side ended in a loop: sign-in succeeded,
-      // and the first panel page sent the user back to sign-in, because the
-      // "this is not the panel" barrier has no way to explain itself. We redirect to where
-      // the panel actually is.
-      if (!context.panel && path.startsWith('/admin')) {
-        final target = 'https://admin.${context.domain}$path';
-        res.statusCode = HttpStatus.movedTemporarily;
-        res.headers.set(HttpHeaders.locationHeader, target);
-        await res.close();
-        return;
-      }
-
-      // No route → 404 in the panel theme.
-      if (route == null) {
-        await error(HttpStatus.notFound, 'not_found');
-        return;
-      }
-
-      if (route.meta.cors && req.method == 'OPTIONS') {
-        await preflightWithGate(res.headers, route.meta, req.headers.value('origin'),
-            req.headers.value('access-control-request-headers'), req.uri);
-        res.statusCode = HttpStatus.noContent;
-        await res.close();
-        return;
-      }
-
-
-      if (!methodAllowed(route.meta, req.method)) {
-        res.headers.set(HttpHeaders.allowHeader, route.meta.methods.join(', '));
-        await error(HttpStatus.methodNotAllowed, 'method', detail: req.method);
-        return;
-      }
-
-      // CSRF, body and the token cookie — from THIS route's declaration. `api` (path prefix) only picks the
-      // error format: a page `/admin/api/x` with `api: true` cannot lift CSRF off the whole `/admin/`.
-      final apiRoute = route.meta.api;
-      // methods that by definition do not change state — only they go without a CSRF token
-      final safe = const {'GET', 'HEAD', 'OPTIONS'}.contains(req.method);
-
-      // Collect the input: parameters (query+form) and cookies.
-      final params = <String, String>{};
-      final files = <UploadedFile>[];
-      req.uri.queryParameters.forEach((k, v) => params[k] = v);
-      extraParams?.forEach((k, v) => params[k] = v);
-      // Client address for attempt limits — XFF only from a trusted proxy (client_ip.dart).
-      final ip = clientAddress(req.connectionInfo?.remoteAddress.address ?? 'unknown',
-          req.headers.value('X-Forwarded-For'), trustedProxies);
-
-      // cookies BEFORE the body: an upload without the CSRF / session cookie is rejected without reading 16 MB (FIX-3)
-      final cookies = <String, String>{};
-      // API routes skip CSRF, so they never see the credentials a browser attaches on its own
-      for (final c in req.cookies) {
-        if (apiRoute && (c.name == Sessions.cookieName || c.name == CustomerAccounts.cookie || c.name == csrfCookie)) {
-          continue;
-        }
-        cookies[c.name] = c.value;
-      }
-
-      var body = '';
-      List<int> bodyBytes = const [];
-      if (apiRoute) {
-        // API (SDK): raw body without form or CSRF; 2 MB on the wire (or the route's maxBody), counted incrementally
-        if (const {'POST', 'PUT', 'PATCH'}.contains(req.method)) {
-          final max = route.meta.maxBody;
-          final limit = max ?? 2 * 1024 * 1024;
-          final buffer = BytesBuilder(copy: false);
-          var tooLarge = false;
-          await for (final k in req) {
-            if (buffer.length + k.length > limit) {
-              tooLarge = true;
-              break;
-            }
-            reserve(k.length);
-            buffer.add(k);
-          }
-          if (tooLarge) return await apiError(res, HttpStatus.requestEntityTooLarge);
-          final gzipped =
-              (req.headers.value(HttpHeaders.contentEncodingHeader) ?? '').trim().toLowerCase() == 'gzip';
-          try {
-            final inflateLimit = max ?? 8 * 1024 * 1024;
-            if (route.meta.binary) {
-              bodyBytes = readBytes(buffer.takeBytes(), gzipped, limit: inflateLimit, reserve: reserve);
-            } else {
-              body = readBody(buffer.takeBytes(), gzipped, limit: inflateLimit, reserve: reserve);
-            }
-          } on UploadTooLarge {
-            return await apiError(res, HttpStatus.requestEntityTooLarge);
-          } on FormatException {
-            return await apiError(res, HttpStatus.badRequest);
-          }
-        }
-      } else if (req.method == 'POST' && Upload.isMultipart(req)) {
-        // Upload (multipart/form-data) — dart:io does not parse it, Upload does.
-        // Must run BEFORE the CSRF check, because the token arrives as a form field.
-        // Only routes that declared `maxBody`: the rest (sign-in included) does not
-        // accept files, and 16 MB in RAM before CSRF and auth is a free DoS (SEC-B-1).
-        final max = route.meta.maxBody;
-        // Without a known length (chunked) or over the limit — refused before reading; likewise without
-        // the CSRF cookie (foreign form) and, on panel pages, without a live session.
-        final length = req.contentLength;
-        if (max == null || length < 0 || length > max) {
-          await error(HttpStatus.requestEntityTooLarge, 'too_large');
-          return;
-        }
-        if (cookies[csrfCookie] == null) {
-          await error(HttpStatus.forbidden, 'csrf');
-          return;
-        }
-        if (route.pageMeta.adminPage && await Sessions.get(cookies[Sessions.cookieName]) == null) {
-          await error(HttpStatus.forbidden, 'forbidden');
-          return;
-        }
-        // budget of multipart bytes buffered at once on the node — parallel uploads will not eat the RAM
-        if (_multipartInFlight + length > multipartBudget) {
-          res.headers.set(HttpHeaders.retryAfterHeader, '5');
-          await error(HttpStatus.serviceUnavailable, 'other');
-          return;
-        }
-        _multipartInFlight += length;
-        try {
-          final w = await Upload.receive(req, req.headers.contentType?.parameters['boundary'], byteLimit: max);
-          params.addAll(w.fields);
-          files.addAll(w.files);
-        } on UploadTooLarge catch (e) {
-          await error(HttpStatus.requestEntityTooLarge, 'file_too_large', detail: '$e');
-          return;
-        } on FormatException {
-          res.statusCode = HttpStatus.badRequest;
-          await res.close();
-          return;
-        } finally {
-          _multipartInFlight -= length;
-        }
-      } else if (!safe) {
-        // body size limit (anti-DoS): 256 KB, counted INCREMENTALLY — with
-        // Transfer-Encoding: chunked there is no Content-Length header (-1)
-        // and an "up front" check let arbitrarily large requests through.
-        const limit = 256 * 1024;
-        final buffer = BytesBuilder(copy: false);
-        var tooLarge = false;
-        await for (final k in req) {
-          if (buffer.length + k.length > limit) {
-            tooLarge = true;
-            break;
-          }
-          buffer.add(k);
-        }
-        if (tooLarge) {
-          await error(HttpStatus.requestEntityTooLarge, 'too_large');
-          return;
-        }
-        final body = utf8.decode(buffer.takeBytes(), allowMalformed: true);
-        // x-www-form-urlencoded form → overrides the query on collision.
-        // Broken encoding is a CLIENT error (400), not a server failure (500) —
-        // browsers encode correctly, so it is either a bot or a hand-made request.
-        try {
-          if ('&'.allMatches(body).length >= maxFormFields) throw ArgumentError('too many fields');
-          Uri.splitQueryString(body).forEach((k, v) => params[k] = v);
-        } on ArgumentError {
-          await error(HttpStatus.badRequest, 'bad_data');
-          return;
-        }
-      }
-      // AFTER parsing the body — a `__ip` form field used to override the address and reset per-IP limits.
-      params['__ip'] = ip;
-
-      // CSRF (double-submit): token in a cookie + hidden form field.
-      // The `__Host-` prefix makes the browser accept this cookie only
-      // without `Domain=` and only over HTTPS — so the front of a neighbouring service in the same
-      // zone (a.ignis.x / b.ignis.x) cannot plant its own token via
-      // `document.cookie = "...; Domain=ignis.x"`.
-      final newCsrf = cookies[csrfCookie] == null;
-      final csrf = cookies[csrfCookie] ?? _token();
-      if (!safe && !apiRoute) {
-        // POST/PUT/PATCH/DELETE must have a csrf field == the cookie (otherwise it is a foreign form).
-        if (cookies[csrfCookie] == null || params['csrf'] != cookies[csrfCookie]) {
-          await error(HttpStatus.forbidden, 'csrf');
-          return;
-        }
-      }
-
-      // SERVICE CONTEXT FOR RLS: from here on the rest of the request runs on ONE
-      // connection with `ignis.service` set. Postgres policies
-      // read that value, so a forgotten `WHERE service` in code stops
-      // showing other tenants' data — this is the last line of defence, not a substitute for the filter.
-      // The connection and transaction start on the FIRST query (a page without queries takes nothing),
-      // and are returned BEFORE the response is sent: a slow client (upload, file download) does not hold the pool
-      // (PERF-A-1). `noDb` pages have no context at all.
-      final process = route.meta.noDb
-          ? (Future<PageEngine> Function() f) => f()
-          : (Future<PageEngine> Function() f) => Db.inContext(context.service, f);
-      final ready = await process(() async {
-        // Build a fresh page instance and inject the request.
-        final page = route.newInstance();
-        page.bind(
-          method: req.method,
-          meta: route.meta,
-          // {name} path segments override query/form parameters of the same name
-          params: {...params, ...?PageRegistry.pathParams(route.meta.route, path)},
-          cookies: cookies,
-          context: context,
-          files: files,
-          remoteAddress: ip,
-          headerValues: _headerMap(req.headers)..removeWhere((k, _) => apiRoute && k == 'cookie'),
-          query: req.uri.queryParameters,
-        );
-        page.body = body;
-        page.bodyBytes = bodyBytes;
-
-        if (!apiRoute) {
-          page.put('csrf', csrf); // available in templates as {{csrf}}
-          if (newCsrf) page.setCookie(csrfCookie, csrf, httpOnly: true);
-          pageLanguage(page, params['lang'], cookies, req.headers.value('accept-language'));
-        }
-
-        // Hydrate @Synced/@SessionSynced fields from Redis — visible for the whole lifecycle.
-        // Session fields only for a live session: a made-up cookie neither creates nor reads keys.
-        final token = route.syncedFields.any((f) => f.isSession)
-            ? await Sessions.alive(cookies[Sessions.cookieName])
-            : null;
-        final snap = await _hydrateSynced(page, route.syncedFields, token);
-
-        // ---- LIFECYCLE (one exit at the end) ---------------------------
-
-        if (!await page.doBeforeProcess()) {
-          // 1) gate before auth — false ⇒ the page handled the response itself (output stream)
-        } else if (!await page.isAbleToSee()) {
-          // 2) authorization — false ⇒ redirect to meta.redirectIfNotAbleToSee.
-          // a password set by someone else: we lead to the password change, not
-          // to sign-in — sending to sign-in would look like a broken session
-          if (page is AdminPage && page.mustChangePassword && page.session != null) {
-            page.redirect('/admin/account');
-            return page;
-          }
-          page.redirect(page.meta.redirectIfNotAbleToSee);
-        } else if (!await page.processData()) {
-          // 3) gate after auth — false ⇒ the page handled the response itself
-        } else {
-          // 3.5) ACTIONS — triggerAction=<name> runs @Action(name) methods BEFORE
-          // insertData. An action returns bool: false ⇒ it handled the response itself
-          // (e.g. redirect/JSON in the output stream) → render skipped, as with the other gates.
-          // POST ONLY: the CSRF token is checked only for POST, so an action
-          // triggered from the query string (GET) would bypass it with a plain link.
-          var proceed = true;
-          final same = params['triggerAction'];
-          if (req.method == 'POST' && same != null && route.actions.containsKey(same)) {
-            // TRAIL: every panel action reaches the audit log from here, not separately
-            // in each page — otherwise the first new page would drop out of the audit
-            // and nobody would notice until someone asks "who changed this".
-            // An exception after the action rolls back the request transaction (often already aborted) with the entry — the
-            // `error` entry then goes in a separate transaction after ROLLBACK (catch below), otherwise no trace would remain.
-            if (page is AdminPage && page.login.isNotEmpty) {
-              Future<void> entry(String result) => AuditLog.save(
-                    service: context.service,
-                    actor: page.login,
-                    location: route.meta.route,
-                    action: same,
-                    detail: AuditLog.describe(params),
-                    ip: ip,
-                    result: result,
-                  );
-              final service = context.service;
-              errorEntry = () => Db.inContext(service, () => entry('error'));
-              proceed = await runActions(page, same, route.actions[same]!);
-              await entry(page.denied ? 'denied' : 'ok');
-            } else {
-              proceed = await runActions(page, same, route.actions[same]!);
-            }
-          }
-          if (proceed) {
-            // 4) render (only when actions did not stop it) + 5) hook after render
-            await page.insertData();
-          }
-          // insertData may have decided there is nothing to show — notFound()/forbidden() (error page) or
-          // redirect() (e.g. no id → list). Then no render: a template with an empty model would blow up
-          // and 500 would go out instead of 404/302.
-          // exception: a validation error from fieldError — 422 with the form to fix, not an error page
-          final formError = page.fieldErrors.isNotEmpty && page.redirectTarget == null;
-          if (proceed && (page.responseReady || (!formError && (page.status >= 400 || page.redirectTarget != null)))) {
-            proceed = false;
-          } else if (proceed) {
-            page.prepareFormErrors();
-            // htmx asks for the content only — it already has the panel shell (menu, topbar).
-            // The same page template serves both cases, only the parent differs.
-            page.put('layout', layoutFor(req.headers.value));
-            page.write(Renderer.render(page.meta.template, page.model));
-            await page.doAfterProcess();
-          }
-        }
-
-        // Persist changed synced fields (after all processing, before the response).
-        await _persistSynced(page, route.syncedFields, token, snap);
-        return page;
-      });
+      if (!await _resolveRoute(r)) return;
+      if (!await _resolveTenant(r)) return;
+      if (!await _preflightAndMethod(r)) return;
+      if (!await _readInput(r, extraParams)) return;
+      if (!await _checkCsrf(r)) return;
+      final ready = await _runPage(r);
       // transaction committed and connection back in the pool — only now we write to the client
-      await _flush(res, ready);
+      await _flush(r.res, ready);
     } on Overloaded {
       // full bcrypt queue — the client should retry in a moment, this is not a failure
       try {
-        res.headers.set(HttpHeaders.retryAfterHeader, '5');
+        r.res.headers.set(HttpHeaders.retryAfterHeader, '5');
       } catch (_) {}
-      if (PageRegistry.underApi(overridePath ?? req.uri.path)) {
-        return apiError(res, HttpStatus.serviceUnavailable);
+      if (PageRegistry.underApi(r.path)) {
+        return apiError(r.res, HttpStatus.serviceUnavailable);
       }
-      await errorPage(res, HttpStatus.serviceUnavailable, 'other', language: requestLanguage(req));
+      await errorPage(r.res, HttpStatus.serviceUnavailable, 'other', language: requestLanguage(req));
     } catch (e, st) {
       // Stack ONLY to the server log; the client gets a generic error (no leak).
       // Details ONLY to the server log — the client must not see the stack trace.
       stderr.writeln('Ignis 500 id=$requestId: $e\n$st');
       try {
-        await errorEntry?.call();
+        await r.errorEntry?.call();
       } catch (e) {
         stderr.writeln('Ignis audit log: error entry not saved: $e');
       }
-      if (PageRegistry.underApi(overridePath ?? req.uri.path)) {
-        return apiError(res, HttpStatus.internalServerError);
+      if (PageRegistry.underApi(r.path)) {
+        return apiError(r.res, HttpStatus.internalServerError);
       }
-      await errorPage(res, HttpStatus.internalServerError, 'server', language: requestLanguage(req));
+      await errorPage(r.res, HttpStatus.internalServerError, 'server', language: requestLanguage(req));
     } finally {
-      _apiBodyInFlight -= apiBytes;
+      _apiBodyInFlight -= r.apiBytes;
     }
   }
 
-  /// Page language for a request without a page (engine error) — the same rules as [pageLanguage].
-  static String requestLanguage(HttpRequest req) {
-    String? cookie;
-    try {
-      cookie = req.cookies.where((c) => c.name == I18n.cookie).firstOrNull?.value;
-    } catch (_) {
-      // a broken Cookie header must not block the error page
+  /// Route lookup, its deadline and the error format (HTML page or API JSON).
+  static Future<bool> _resolveRoute(_Request r) async {
+    r.route = PageRegistry.match(r.path);
+    r.api = PageRegistry.underApi(r.path);
+    // the deadline is set by [guarded]; outside it (null) no timer that would outlive the request
+    if (r.res.deadline != null) r.res.deadline = routeDeadline(r.route?.meta);
+    // the API client is an SDK, not a browser — JSON {"error": …}, no HTML page
+    r.language = requestLanguage(r.req);
+    // unknown path under the API prefix — 404 without asking the database for the tenant
+    if (r.api && r.route == null) {
+      await apiError(r.res, HttpStatus.notFound);
+      return false;
     }
-    String? param;
-    try {
-      param = req.uri.queryParameters['lang'];
-    } catch (_) {
-      // broken %-encoding — the error page must go out anyway
-    }
-    return I18n.pick(param: param, cookieValue: cookie, acceptLanguage: req.headers.value('accept-language'));
+    return true;
   }
+
+  /// Service from the domain, the panel-domain redirect and 404 for an unknown route.
+  static Future<bool> _resolveTenant(_Request r) async {
+    final req = r.req, res = r.res, route = r.route;
+    // Service from the domain. An unknown domain does NOT get a default tenant —
+    // guessing here would mean showing someone another tenant's data.
+    // Technical routes (health probe) are skipped: they are called by IP, without a domain.
+    if (route?.meta.technical ?? false) {
+      // The probe answers only loopback and a trusted proxy (by socket address, not by Host) —
+      // everyone else does not learn the state of the database, Redis or the node name.
+      if (!probeAllowed(req.connectionInfo?.remoteAddress.address ?? '',
+          req.headers.value('X-Forwarded-For'), trustedProxies)) {
+        res.statusCode = HttpStatus.notFound;
+        await res.close();
+        return false;
+      }
+      r.context = TenantContext.platformContext;
+    } else {
+      final k = await Tenants.fromHost(req.headers.host);
+      if (k == null) {
+        await r.error(HttpStatus.notFound, 'unknown_domain');
+        return false;
+      }
+      if (!k.active) {
+        await r.error(HttpStatus.paymentRequired, 'inactive', detail: k.reason);
+        return false;
+      }
+      r.context = k;
+    }
+
+    // The panel lives under `admin.<domain>`, the front under the bare domain. Entering
+    // /admin from the front side ended in a loop: sign-in succeeded,
+    // and the first panel page sent the user back to sign-in, because the
+    // "this is not the panel" barrier has no way to explain itself. We redirect to where
+    // the panel actually is.
+    if (!r.context.panel && r.path.startsWith('/admin')) {
+      final target = 'https://admin.${r.context.domain}${r.path}';
+      res.statusCode = HttpStatus.movedTemporarily;
+      res.headers.set(HttpHeaders.locationHeader, target);
+      await res.close();
+      return false;
+    }
+
+    // No route → 404 in the panel theme.
+    if (route == null) {
+      await r.error(HttpStatus.notFound, 'not_found');
+      return false;
+    }
+    return true;
+  }
+
+  /// CORS preflight of a `cors: true` route, then `@Page(methods:)`.
+  static Future<bool> _preflightAndMethod(_Request r) async {
+    final req = r.req, res = r.res, meta = r.route!.meta;
+    if (meta.cors && req.method == 'OPTIONS') {
+      await preflightWithGate(res.headers, meta, req.headers.value('origin'),
+          req.headers.value('access-control-request-headers'), req.uri);
+      res.statusCode = HttpStatus.noContent;
+      await res.close();
+      return false;
+    }
+    if (!methodAllowed(meta, req.method)) {
+      res.headers.set(HttpHeaders.allowHeader, meta.methods.join(', '));
+      await r.error(HttpStatus.methodNotAllowed, 'method', detail: req.method);
+      return false;
+    }
+    return true;
+  }
+
+  /// Parameters (query + form), cookies, client address and the body, with their limits.
+  static Future<bool> _readInput(_Request r, Map<String, String>? extraParams) async {
+    final req = r.req, route = r.route!;
+    // CSRF, body and the token cookie — from THIS route's declaration. `api` (path prefix) only picks the
+    // error format: a page `/admin/api/x` with `api: true` cannot lift CSRF off the whole `/admin/`.
+    r.apiRoute = route.meta.api;
+    // methods that by definition do not change state — only they go without a CSRF token
+    r.safe = const {'GET', 'HEAD', 'OPTIONS'}.contains(req.method);
+
+    // Collect the input: parameters (query+form) and cookies.
+    req.uri.queryParameters.forEach((k, v) => r.params[k] = v);
+    extraParams?.forEach((k, v) => r.params[k] = v);
+    // Client address for attempt limits — XFF only from a trusted proxy (client_ip.dart).
+    r.ip = clientAddress(req.connectionInfo?.remoteAddress.address ?? 'unknown',
+        req.headers.value('X-Forwarded-For'), trustedProxies);
+
+    // cookies BEFORE the body: an upload without the CSRF / session cookie is rejected without reading 16 MB (FIX-3)
+    // API routes skip CSRF, so they never see the credentials a browser attaches on its own
+    for (final c in req.cookies) {
+      if (r.apiRoute && (c.name == Sessions.cookieName || c.name == CustomerAccounts.cookie || c.name == csrfCookie)) {
+        continue;
+      }
+      r.cookies[c.name] = c.value;
+    }
+
+    final read = r.apiRoute
+        ? await _readApiBody(r)
+        : req.method == 'POST' && Upload.isMultipart(req)
+            ? await _readMultipart(r)
+            : !r.safe
+                ? await _readForm(r)
+                : true;
+    if (!read) return false;
+    // AFTER parsing the body — a `__ip` form field used to override the address and reset per-IP limits.
+    r.params['__ip'] = r.ip;
+    return true;
+  }
+
+  /// API (SDK): raw body without form or CSRF; 2 MB on the wire (or the route's maxBody), counted incrementally.
+  static Future<bool> _readApiBody(_Request r) async {
+    final req = r.req, route = r.route!;
+    if (!const {'POST', 'PUT', 'PATCH'}.contains(req.method)) return true;
+    final max = route.meta.maxBody;
+    final limit = max ?? 2 * 1024 * 1024;
+    final buffer = BytesBuilder(copy: false);
+    var tooLarge = false;
+    await for (final k in req) {
+      if (buffer.length + k.length > limit) {
+        tooLarge = true;
+        break;
+      }
+      r.reserve(k.length);
+      buffer.add(k);
+    }
+    if (tooLarge) {
+      await apiError(r.res, HttpStatus.requestEntityTooLarge);
+      return false;
+    }
+    final gzipped = (req.headers.value(HttpHeaders.contentEncodingHeader) ?? '').trim().toLowerCase() == 'gzip';
+    try {
+      final inflateLimit = max ?? 8 * 1024 * 1024;
+      if (route.meta.binary) {
+        r.bodyBytes = readBytes(buffer.takeBytes(), gzipped, limit: inflateLimit, reserve: r.reserve);
+      } else {
+        r.body = readBody(buffer.takeBytes(), gzipped, limit: inflateLimit, reserve: r.reserve);
+      }
+    } on UploadTooLarge {
+      await apiError(r.res, HttpStatus.requestEntityTooLarge);
+      return false;
+    } on FormatException {
+      await apiError(r.res, HttpStatus.badRequest);
+      return false;
+    }
+    return true;
+  }
+
+  /// Upload (multipart/form-data) — dart:io does not parse it, Upload does.
+  /// Must run BEFORE the CSRF check, because the token arrives as a form field.
+  /// Only routes that declared `maxBody`: the rest (sign-in included) does not
+  /// accept files, and 16 MB in RAM before CSRF and auth is a free DoS (SEC-B-1).
+  static Future<bool> _readMultipart(_Request r) async {
+    final req = r.req, res = r.res, route = r.route!;
+    final max = route.meta.maxBody;
+    // Without a known length (chunked) or over the limit — refused before reading; likewise without
+    // the CSRF cookie (foreign form) and, on panel pages, without a live session.
+    final length = req.contentLength;
+    if (max == null || length < 0 || length > max) {
+      await r.error(HttpStatus.requestEntityTooLarge, 'too_large');
+      return false;
+    }
+    if (r.cookies[csrfCookie] == null) {
+      await r.error(HttpStatus.forbidden, 'csrf');
+      return false;
+    }
+    if (route.pageMeta.adminPage && await Sessions.get(r.cookies[Sessions.cookieName]) == null) {
+      await r.error(HttpStatus.forbidden, 'forbidden');
+      return false;
+    }
+    // budget of multipart bytes buffered at once on the node — parallel uploads will not eat the RAM
+    if (_multipartInFlight + length > multipartBudget) {
+      res.headers.set(HttpHeaders.retryAfterHeader, '5');
+      await r.error(HttpStatus.serviceUnavailable, 'other');
+      return false;
+    }
+    _multipartInFlight += length;
+    try {
+      final w = await Upload.receive(req, req.headers.contentType?.parameters['boundary'], byteLimit: max);
+      r.params.addAll(w.fields);
+      r.files.addAll(w.files);
+    } on UploadTooLarge catch (e) {
+      await r.error(HttpStatus.requestEntityTooLarge, 'file_too_large', detail: '$e');
+      return false;
+    } on FormatException {
+      res.statusCode = HttpStatus.badRequest;
+      await res.close();
+      return false;
+    } finally {
+      _multipartInFlight -= length;
+    }
+    return true;
+  }
+
+  /// x-www-form-urlencoded body of a state-changing request.
+  static Future<bool> _readForm(_Request r) async {
+    // body size limit (anti-DoS): 256 KB, counted INCREMENTALLY — with
+    // Transfer-Encoding: chunked there is no Content-Length header (-1)
+    // and an "up front" check let arbitrarily large requests through.
+    const limit = 256 * 1024;
+    final buffer = BytesBuilder(copy: false);
+    var tooLarge = false;
+    await for (final k in r.req) {
+      if (buffer.length + k.length > limit) {
+        tooLarge = true;
+        break;
+      }
+      buffer.add(k);
+    }
+    if (tooLarge) {
+      await r.error(HttpStatus.requestEntityTooLarge, 'too_large');
+      return false;
+    }
+    final body = utf8.decode(buffer.takeBytes(), allowMalformed: true);
+    // x-www-form-urlencoded form → overrides the query on collision.
+    // Broken encoding is a CLIENT error (400), not a server failure (500) —
+    // browsers encode correctly, so it is either a bot or a hand-made request.
+    try {
+      if ('&'.allMatches(body).length >= maxFormFields) throw ArgumentError('too many fields');
+      Uri.splitQueryString(body).forEach((k, v) => r.params[k] = v);
+    } on ArgumentError {
+      await r.error(HttpStatus.badRequest, 'bad_data');
+      return false;
+    }
+    return true;
+  }
+
+  /// CSRF (double-submit): token in a cookie + hidden form field.
+  /// The `__Host-` prefix makes the browser accept this cookie only
+  /// without `Domain=` and only over HTTPS — so the front of a neighbouring service in the same
+  /// zone (a.ignis.x / b.ignis.x) cannot plant its own token via
+  /// `document.cookie = "...; Domain=ignis.x"`.
+  static Future<bool> _checkCsrf(_Request r) async {
+    r.newCsrf = r.cookies[csrfCookie] == null;
+    r.csrf = r.cookies[csrfCookie] ?? _token();
+    if (!r.safe && !r.apiRoute) {
+      // POST/PUT/PATCH/DELETE must have a csrf field == the cookie (otherwise it is a foreign form).
+      if (r.cookies[csrfCookie] == null || r.params['csrf'] != r.cookies[csrfCookie]) {
+        await r.error(HttpStatus.forbidden, 'csrf');
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// SERVICE CONTEXT FOR RLS: from here on the rest of the request runs on ONE
+  /// connection with `ignis.service` set. Postgres policies
+  /// read that value, so a forgotten `WHERE service` in code stops
+  /// showing other tenants' data — this is the last line of defence, not a substitute for the filter.
+  /// The connection and transaction start on the FIRST query (a page without queries takes nothing),
+  /// and are returned BEFORE the response is sent: a slow client (upload, file download) does not hold the pool
+  /// (PERF-A-1). `noDb` pages have no context at all.
+  static Future<PageEngine> _runPage(_Request r) {
+    final route = r.route!;
+    final process = route.meta.noDb
+        ? (Future<PageEngine> Function() f) => f()
+        : (Future<PageEngine> Function() f) => Db.inContext(r.context.service, f);
+    return process(() async {
+      final page = _newPage(r);
+      // Hydrate @Synced/@SessionSynced fields from Redis — visible for the whole lifecycle.
+      // Session fields only for a live session: a made-up cookie neither creates nor reads keys.
+      final token = route.syncedFields.any((f) => f.isSession)
+          ? await Sessions.alive(r.cookies[Sessions.cookieName])
+          : null;
+      final snap = await _hydrateSynced(page, route.syncedFields, token);
+      if (!await _lifecycle(r, page)) return page;
+      // Persist changed synced fields (after all processing, before the response).
+      await _persistSynced(page, route.syncedFields, token, snap);
+      return page;
+    });
+  }
+
+  /// Builds a fresh page instance and injects the request.
+  static PageEngine _newPage(_Request r) {
+    final req = r.req, route = r.route!;
+    final page = route.newInstance();
+    page.bind(
+      method: req.method,
+      meta: route.meta,
+      // {name} path segments override query/form parameters of the same name
+      params: {...r.params, ...?PageRegistry.pathParams(route.meta.route, r.path)},
+      cookies: r.cookies,
+      context: r.context,
+      files: r.files,
+      remoteAddress: r.ip,
+      headerValues: _headerMap(req.headers)..removeWhere((k, _) => r.apiRoute && k == 'cookie'),
+      query: req.uri.queryParameters,
+    );
+    page.body = r.body;
+    page.bodyBytes = r.bodyBytes;
+
+    if (!r.apiRoute) {
+      page.put('csrf', r.csrf); // available in templates as {{csrf}}
+      if (r.newCsrf) page.setCookie(csrfCookie, r.csrf, httpOnly: true);
+      pageLanguage(page, r.params['lang'], r.cookies, req.headers.value('accept-language'));
+    }
+    return page;
+  }
+
+  /// The page LIFECYCLE (one exit at the end). false = synced fields are not persisted
+  /// (forced password change).
+  static Future<bool> _lifecycle(_Request r, PageEngine page) async {
+    if (!await page.doBeforeProcess()) {
+      // 1) gate before auth — false ⇒ the page handled the response itself (output stream)
+    } else if (!await page.isAbleToSee()) {
+      // 2) authorization — false ⇒ redirect to meta.redirectIfNotAbleToSee.
+      // a password set by someone else: we lead to the password change, not
+      // to sign-in — sending to sign-in would look like a broken session
+      if (page is AdminPage && page.restricted && page.session != null) {
+        page.redirect('/admin/account');
+        return false;
+      }
+      page.redirect(page.meta.redirectIfNotAbleToSee);
+    } else if (!await page.processData()) {
+      // 3) gate after auth — false ⇒ the page handled the response itself
+    } else {
+      // 3.5) ACTIONS before insertData; false ⇒ the action handled the response itself
+      var proceed = await _triggeredAction(r, page);
+      if (proceed) {
+        // 4) render (only when actions did not stop it) + 5) hook after render
+        await page.insertData();
+      }
+      // insertData may have decided there is nothing to show — notFound()/forbidden() (error page) or
+      // redirect() (e.g. no id → list). Then no render: a template with an empty model would blow up
+      // and 500 would go out instead of 404/302.
+      // exception: a validation error from fieldError — 422 with the form to fix, not an error page
+      final formError = page.fieldErrors.isNotEmpty && page.redirectTarget == null;
+      if (proceed && (page.responseReady || (!formError && (page.status >= 400 || page.redirectTarget != null)))) {
+        proceed = false;
+      } else if (proceed) {
+        page.prepareFormErrors();
+        // htmx asks for the content only — it already has the panel shell (menu, topbar).
+        // The same page template serves both cases, only the parent differs.
+        page.put('layout', layoutFor(r.req.headers.value));
+        page.write(Renderer.render(page.meta.template, page.model));
+        await page.doAfterProcess();
+      }
+    }
+    return true;
+  }
+
+  /// ACTIONS — triggerAction=<name> runs @Action(name) methods BEFORE
+  /// insertData. An action returns bool: false ⇒ it handled the response itself
+  /// (e.g. redirect/JSON in the output stream) → render skipped, as with the other gates.
+  /// POST ONLY: the CSRF token is checked only for POST, so an action
+  /// triggered from the query string (GET) would bypass it with a plain link.
+  static Future<bool> _triggeredAction(_Request r, PageEngine page) async {
+    final route = r.route!, params = r.params;
+    final same = params['triggerAction'];
+    if (r.req.method != 'POST' || same == null || !route.actions.containsKey(same)) return true;
+    // TRAIL: every panel action reaches the audit log from here, not separately
+    // in each page — otherwise the first new page would drop out of the audit
+    // and nobody would notice until someone asks "who changed this".
+    // An exception after the action rolls back the request transaction (often already aborted) with the entry — the
+    // `error` entry then goes in a separate transaction after ROLLBACK (catch in handle), otherwise no trace would remain.
+    if (page is AdminPage && page.login.isNotEmpty) {
+      final service = r.context.service;
+      Future<void> entry(String result) => AuditLog.save(
+            service: service,
+            actor: page.login,
+            location: route.meta.route,
+            action: same,
+            detail: AuditLog.describe(params),
+            ip: r.ip,
+            result: result,
+          );
+      r.errorEntry = () => Db.inContext(service, () => entry('error'));
+      final proceed = await runActions(page, same, route.actions[same]!);
+      await entry(page.denied ? 'denied' : 'ok');
+      return proceed;
+    }
+    return runActions(page, same, route.actions[same]!);
+  }
+
+  /// Page language for a request without a page (engine error) — the same rules as [pageLanguage].
+  static String requestLanguage(HttpRequest req) => _requestLanguage(req);
 
   /// Error for an API client: `{"error": "<English description>"}` with [code].
 static Future<void> apiError(HttpResponse res, int code) async {
@@ -701,19 +690,8 @@ static String errorDescription(int code) => switch (code) {
   /// query without `lang` (encoded, with a leading `&`), so the switcher `?lang=xx{{ q_lang }}` does not drop e.g. `next`.
   /// A supported `?lang=` is remembered in a cookie for a year.
   static void pageLanguage(PageEngine page, String? param, Map<String, String> cookies,
-      String? acceptLanguage) {
-    final j = I18n.pick(
-        param: param, cookieValue: cookies[I18n.cookie], acceptLanguage: acceptLanguage);
-    if (param == j && cookies[I18n.cookie] != j) {
-      page.setCookie(I18n.cookie, j, maxAge: 365 * 24 * 3600);
-    }
-    page.language = j;
-    page.put('language', j);
-    page.put('languages', I18n.languages);
-    page.put('q_lang', page.queryWithout(const ['lang']));
-    page.put('t', (String key) => I18n.t(j, key));
-    page.put('tn', (String key, Object? n) => I18n.tn(j, key, n is num ? n.toInt() : int.tryParse('$n') ?? 0));
-  }
+          String? acceptLanguage) =>
+      _pageLanguage(page, param, cookies, acceptLanguage);
 
   /// Preflight gate: the app says whether [origin] may call its API at all (e.g. it is on the site list
   /// of some project). Refusal = 204 without CORS headers, the browser will not send the actual request.
@@ -722,22 +700,12 @@ static String errorDescription(int code) => switch (code) {
   static Future<bool> Function(String origin, Uri uri)? preflightOrigin;
 
   /// [preflight] for an Origin let in by [preflightOrigin] (refusal = no CORS headers).
-  static Future<void> preflightWithGate(HttpHeaders h, Page meta, String? origin, String? headerValues, Uri uri) async {
-    if (origin == null || origin.isEmpty) return;
-    final gate = preflightOrigin;
-    if (gate != null && !await gate(origin, uri)) return;
-    preflight(h, meta, origin, headerValues);
-  }
+  static Future<void> preflightWithGate(HttpHeaders h, Page meta, String? origin, String? headerValues, Uri uri) =>
+      _preflightWithGate(h, meta, origin, headerValues, uri);
 
   /// Response to the CORS preflight of a `@Page(cors: true)` route for an Origin let in by [preflightOrigin].
-  static void preflight(HttpHeaders h, Page meta, String? origin, String? headerValues) {
-    if (origin == null || origin.isEmpty) return;
-    h.set('Access-Control-Allow-Origin', origin);
-    h.set('Access-Control-Allow-Methods', [...(meta.methods.isEmpty ? const ['GET', 'POST'] : meta.methods), 'OPTIONS'].join(', '));
-    if (headerValues != null && headerValues.isNotEmpty) h.set('Access-Control-Allow-Headers', headerValues);
-    h.set('Access-Control-Max-Age', '86400');
-    h.set('Vary', 'Origin');
-  }
+  static void preflight(HttpHeaders h, Page meta, String? origin, String? headerValues) =>
+      _preflight(h, meta, origin, headerValues);
 
   /// Whether [method] passes `@Page(methods:)` (empty = any).
   static bool methodAllowed(Page meta, String method) =>
@@ -939,12 +907,7 @@ static String errorDescription(int code) => switch (code) {
   /// Dynamic response (HTML with the CSRF token, JSON with account data) — no cache, unless the page
   /// set its own Cache-Control. HTML gets the CSP in a header (also pages on their own layouts
   /// and with `write()`); the same URL gives a full page or an htmx fragment, hence Vary.
-  static void htmlHeaders(HttpHeaders h, PageEngine page) {
-    if (!page.headers.containsKey('Cache-Control')) h.set('Cache-Control', 'no-store');
-    if (!page.contentType.startsWith('text/html')) return;
-    if (!page.headers.containsKey('Content-Security-Policy')) h.set('Content-Security-Policy', csp);
-    h.add('Vary', 'HX-Request, X-Ignis-Live');
-  }
+  static void htmlHeaders(HttpHeaders h, PageEngine page) => _htmlHeaders(h, page);
 
   /// The page's `@Action(name)` methods in order, preceded by ONE gate [PageEngine.beforeAction]
   /// (e.g. role → permission). false = the gate or the action set the response itself — no render.
@@ -976,5 +939,43 @@ static String errorDescription(int code) => switch (code) {
     if (p.endsWith('.css')) return 'text/css';
     if (p.endsWith('.js')) return 'application/javascript';
     return 'application/octet-stream';
+  }
+}
+
+/// State of one request shared by the [Engine.handle] steps.
+class _Request {
+  _Request(this.req, this.path) : res = req.response;
+  final HttpRequest req;
+  final HttpResponse res;
+  final String path;
+  PageRoute? route;
+  var api = false;
+  var language = '';
+  late TenantContext context;
+  var apiRoute = false;
+  var safe = false;
+  final params = <String, String>{};
+  final files = <UploadedFile>[];
+  final cookies = <String, String>{};
+  var ip = '';
+  var body = '';
+  List<int> bodyBytes = const [];
+  var newCsrf = false;
+  var csrf = '';
+  Future<void> Function()? errorEntry;
+
+  /// share of [Engine.apiBodyBudget], held until the request is handled
+  var apiBytes = 0;
+
+  void reserve(int n) {
+    if (Engine._apiBodyInFlight + n > Engine.apiBodyBudget) throw const Overloaded();
+    Engine._apiBodyInFlight += n;
+    apiBytes += n;
+  }
+
+  /// Error in the route's format: HTML page, or JSON for the API client.
+  Future<void> error(int code, String kind, {String detail = ''}) async {
+    if (!api) return Engine.errorPage(res, code, kind, language: language, detail: detail);
+    await Engine.apiError(res, code);
   }
 }

@@ -1,6 +1,6 @@
 # Ignis security
 
-This document describes the **actual state** of Ignis 0.4.4, not intentions. Every point maps to a
+This document describes the **actual state** of Ignis 0.5.0, not intentions. Every point maps to a
 file you can check. Open problems are listed under "Known gaps", not left out.
 
 > The first public release (0.1.0) included the pre-release audit fixes for areas A (tenant isolation / auth),
@@ -88,7 +88,31 @@ address, the `staff` realm, the account belonging to *this* service, and the per
 - Setup failures are not swallowed: `Schema.checkRls` verifies `ENABLE`+`FORCE` and the full policy
   set (with no foreign policies) in every `IGNIS_SCHEMA` mode; a mismatch aborts start-up.
 
+### RLS by an app tenant column
+
+`@Entity('notes', tenantColumn: 'tenant')` puts a table under RLS by the app's own tenant (a text or int column)
+instead of `service`. A row is visible and writable only when the column equals `ignis.tenant`, set by
+`Db.asTenant(tenant, body)` locally in one transaction (`set_config(..., true)`), or in the system context
+(`Db.asSystem`, `'*'`). Fail-closed like the rest: no tenant = 0 rows, and the platform context (`'0'`) does not
+open these tables. Writes are checked too (`WITH CHECK`): an INSERT or UPDATE with another tenant's value is
+rejected. `Db.asTenant` refuses to nest a different tenant, or to start inside a request/system transaction — one
+transaction never mixes contexts; `Db.asSystem` inside it raises to `'*'` and returns. The table gets `ENABLE` +
+`FORCE` and the same two fingerprinted policies, so `Schema.checkRls` covers it. Entities without `tenantColumn`
+behave exactly as before.
+
 ### Runtime database role
+
+Three separate defences, each against a different failure:
+
+- **RLS** (`FORCE` + policies) — a query in code that **forgot the service filter** still sees only the current
+  tenant's rows.
+- **Runtime role** (not the table owner) — a compromised node or injected SQL **cannot change the policies for
+  good** (`ALTER`/`DROP POLICY`, `DISABLE ROW LEVEL SECURITY`, DDL); it does not stop context widening (limit below).
+- **Parameterised queries** (`Sql.named`) — the defence against **SQL injection** itself; neither RLS nor the role
+  replaces it.
+
+Recommended production setup: serving nodes with `IGNIS_SCHEMA=validate` and `IGNIS_REQUIRE_RUNTIME_ROLE=1` on the
+runtime role, and a separate migration step (owner role, `IGNIS_SCHEMA=update`) run before them on each deploy.
 
 The role that owns the tables can `ALTER`/`DROP` their policies. Split it: the **owner** only migrates
 (one deploy step or one node with `IGNIS_SCHEMA=update`), the serving nodes run on a **runtime role** with
@@ -166,16 +190,24 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
 - **If the TOTP ciphertext cannot be decrypted, login is denied** rather than silently skipping the
   factor.
 
+- **Required for platform accounts** (service `0`, since 0.5.0): without TOTP the password gives only a restricted
+  session — `/admin/account` (password change, enabling TOTP) and sign-out; any other page or action redirects there.
+  Enforced in the authorization path (`AdminPage.isAbleToSee`, `AccountPage.beforeAction`), not in the UI. A pending
+  password change comes first. The account cannot disable its own required factor; the console `disable-2fa` or
+  another administrator can, and the restriction comes back. `IGNIS_REQUIRE_PLATFORM_2FA=0` turns it off;
+  `IGNIS_REQUIRE_STAFF_2FA=1` extends it to every staff account.
+
 ### Enabling TOTP (do it for every staff account, the platform `admin` first)
 
-The engine does not force a second factor — a fresh install has an `admin` account protected by a password only.
-That account sees every service (context `0`), so treat 2FA on it as part of the install, not an option:
+A fresh install has an `admin` account protected by a password only, and the panel lets it do nothing except change
+the password and enable TOTP until it has one (unless `IGNIS_REQUIRE_PLATFORM_2FA=0`):
 
 1. Sign in, change the initial password (the panel forces it) to a long, random one kept in a password manager.
-2. `/admin/account` → **Second factor** → scan the QR code with any TOTP app (Aegis, Google Authenticator,
-   1Password, Bitwarden/Vaultwarden) and confirm with the current 6-digit code. Nothing is stored until that code
+2. `/admin/account` → **Second factor** → the page shows the secret as text and an `otpauth://` link (there is
+   no QR code). Type the secret into any TOTP app (Aegis, Google Authenticator, 1Password, Bitwarden/Vaultwarden),
+   or open the page on the phone and tap the link, which hands the secret to the authenticator app; then confirm with the current 6-digit code. Nothing is stored until that code
    is correct.
-3. Sign out and in again to check it; store the secret (or the QR) in the password manager as a backup.
+3. Sign out and in again to check it; store the secret (or the `otpauth://` link) in the password manager as a backup.
 4. Remove `IGNIS_ADMIN_PASS` from the env file: it is read **only** while the `users` table is empty (first start),
    so afterwards it is a stale plaintext copy of a password — changing it does **not** change the account.
 
@@ -187,7 +219,7 @@ dart run ignis:account disable-2fa admin       # clears the second factor (audit
 dart run ignis:account password admin < file   # new password from stdin; must be changed at next sign-in
 ```
 
-Then enable TOTP again. Other accounts' factors are cleared from the permissions panel by an administrator.
+Then enable TOTP again (a platform account is restricted until you do). Other accounts' factors are cleared from the permissions panel by an administrator.
 Do not rely on network filters alone (e.g. `/admin` reachable only from a LAN/VPN): anything inside that network —
 another container, a VPN client — then faces just a password. Firewall the app port so only the proxy reaches it.
 
@@ -195,7 +227,8 @@ another container, a VPN client — then faces just a password. Firewall the app
 
 - **SQL**: parameterised queries only (`Sql.named`). Interpolated parts are literals from code (column
   names, constant conditions), never user data.
-- **XSS**: Jinja 0.6.7 has **no autoescape**, so escaping is done by `Renderer` (`engine/render.dart`)
+- **XSS**: Jinja 0.7.x (checked on 0.7.2; 0.6.7 behaved the same) has **no autoescape** — `Template(autoEscape:)` is
+  accepted and ignored, so escaping is done by `Renderer` (`engine/render.dart`)
   — every String in the model, in nested maps and lists, and object fields read via the generated getters; at output, any
   other value (objects with their own `toString()`, exceptions, records), also inside a printed collection and
   in the `string` / `join` filters. `striptags` is Ignis' own: Jinja's version unescapes its result, which

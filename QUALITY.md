@@ -64,7 +64,9 @@ in `Ignis.start`) will wake up twice — after a node restart, when it coincides
 click, with two nodes at once. A Redis lock lowers the chance, but it is the unique
 index that guarantees there will be no duplicate.
 
-## Templates (jinja 0.6.7) — traps we have already fallen into
+## Templates (jinja 0.7.x) — traps we have already fallen into
+
+Checked on 0.7.2 (every row below still reproduces; they were found on 0.6.7).
 
 | Trap | Symptom | How to write it |
 |---|---|---|

@@ -18,7 +18,9 @@
 //  or grant calls invalidate() — otherwise revoking access would take effect with a delay.
 // ============================================================================
 
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:postgres/postgres.dart';
 
@@ -101,7 +103,9 @@ class Permissions {
     final u = await _fromDb(username);
     try {
       await Redis.setEx('perm:$username', jsonEncode(u.toJson()), _ttlCache);
-    } catch (_) {}
+    } catch (e) {
+      _logRedis('permission cache not written', e);
+    }
     return u;
   }
 
@@ -114,7 +118,44 @@ class Permissions {
   /// without an open transaction right away — then a Redis error goes to the caller instead of quietly leaving
   /// old permissions in the cache for [_ttlCache].
   static Future<void> invalidateMany(List<String> logins) =>
-      Db.afterTransaction(() => Redis.delMany([for (final u in logins) 'perm:$u']));
+      Db.afterTransaction(() => _del([for (final u in logins) 'perm:$u'], _ttlCache));
+
+  /// DEL that does not give up: a failure is logged and retried every [retryEvery] in the background until it goes
+  /// through or the entries would have expired anyway ([ttl] s) — otherwise a Redis blip during the invalidation left
+  /// a revoked permission alive for the whole TTL. The error is still rethrown to the caller.
+  static Future<void> _del(List<String> keys, int ttl) async {
+    try {
+      await Redis.delMany(keys);
+    } catch (e) {
+      _logRedis('cache invalidation failed, retrying', e);
+      unawaited(_retryDel(keys, ttl));
+      rethrow;
+    }
+  }
+
+  static const retryEvery = Duration(seconds: 2);
+
+  static Future<void> _retryDel(List<String> keys, int ttl) async {
+    final end = DateTime.now().add(Duration(seconds: ttl));
+    while (DateTime.now().isBefore(end)) {
+      await Future.delayed(retryEvery);
+      try {
+        await Redis.delMany(keys);
+        return;
+      } catch (_) {/* still down — logged once in _del */}
+    }
+  }
+
+  static final _lastLog = <String, DateTime>{};
+
+  /// stderr, at most once a minute per [what] — with Redis down every request would otherwise log the same line.
+  static void _logRedis(String what, Object e) {
+    final now = DateTime.now();
+    final last = _lastLog[what];
+    if (last != null && now.difference(last) < const Duration(minutes: 1)) return;
+    _lastLog[what] = now;
+    stderr.writeln('Ignis permissions: $what — $e');
+  }
 
   /// Permissions of MANY accounts in two queries — the dashboard and the user list
   /// used to make 2-3 queries per account.
@@ -444,7 +485,9 @@ class Permissions {
     }
     try {
       await Redis.del(k);
-    } catch (_) {}
+    } catch (e) {
+      _logRedis('confirmation counter not reset', e);
+    }
     return true;
   }
 
@@ -538,7 +581,9 @@ class Permissions {
     try {
       final raw = await Redis.get(key);
       if (raw != null) rawSettings = (jsonDecode(raw) as Map).cast<String, String>();
-    } catch (_) {}
+    } catch (e) {
+      _logRedis('settings cache not read', e);
+    }
     if (rawSettings == null) {
       final r = await (await Db.connect()).execute(
         Sql.named('SELECT key, value FROM settings WHERE service=@u ORDER BY key'),
@@ -547,7 +592,9 @@ class Permissions {
       rawSettings = {for (final x in r) x[0] as String: (x[1] ?? '') as String};
       try {
         await Redis.setEx(key, jsonEncode(rawSettings), 60);
-      } catch (_) {}
+      } catch (e) {
+        _logRedis('settings cache not written', e);
+      }
     }
     // secrets (passwords, API keys) are stored encrypted — see crypto.dart. We decrypt ONLY
     // secret keys: a plain field with a pasted ciphertext must not be an oracle (SEC-A-8).
@@ -574,7 +621,8 @@ class Permissions {
       },
     );
     try {
-      await Redis.del('settings:$service'); // AFTER the write — otherwise another node would rebuild the cache with the old value
-    } catch (_) {}
+      // AFTER the write — otherwise another node would rebuild the cache with the old value; retried on failure
+      await _del(['settings:$service'], 60);
+    } catch (_) {/* logged in _del */}
   }
 }

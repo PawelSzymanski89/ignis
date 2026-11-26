@@ -59,6 +59,9 @@ class EntityMeta {
   /// UNIQUE constraints (from @Entity(unique:)) — used by auto-schema.
   final List<List<String>> unique;
 
+  /// App tenant column (from @Entity(tenantColumn:)) — RLS by `ignis.tenant`, see [Entity.tenantColumn].
+  final String? tenantColumn;
+
   /// Builds a fresh instance (`ClassName.new`) — hydrate/defaults.
   final Object Function() ctor;
 
@@ -73,6 +76,7 @@ class EntityMeta {
     required this.ttl,
     required this.unique,
     required this.ctor,
+    this.tenantColumn,
   });
 
   /// Fields without the primary key (for INSERT/UPDATE).

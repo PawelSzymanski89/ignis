@@ -214,7 +214,7 @@ class AuditLog {
   static Future<void> purgeSafely() async {
     try {
       if (!await Redis.setNxEx(
-          'lock:audit_log', Platform.environment['IGNIS_NODE'] ?? 'node', 3600)) {
+          'lock:audit_log', Redis.lockNode, 3600)) {
         return;
       }
       final count = await Db.asSystem(purge);

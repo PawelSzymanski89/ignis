@@ -8,6 +8,9 @@
 {% if must_change %}
 <div class="alert alert-warning"><i class="fe fe-alert-triangle me-1"></i>
   <b>{{ t('ignis.account.must_change') }}</b> {{ t('ignis.account.must_change_why') }}</div>
+{% elif must_enable_totp %}
+<div class="alert alert-warning"><i class="fe fe-alert-triangle me-1"></i>
+  <b>{{ t('ignis.account.must_enable_totp') }}</b> {{ t('ignis.account.must_enable_totp_why') }}</div>
 {% endif %}
 
 <div class="row">
@@ -38,7 +41,10 @@
 
   <div class="col-xl-5">
     {% call card(t('ignis.account.totp_card'), subtitle=t('ignis.account.totp_card_sub')) %}
-      {% if has_totp %}
+      {% if has_totp and totp_required %}
+      <p class="fs-13 mb-2"><span class="badge bg-success-transparent">{{ t('ignis.account.totp_on') }}</span>
+        {{ t('ignis.account.totp_required_info') }}</p>
+      {% elif has_totp %}
       <p class="fs-13 mb-2"><span class="badge bg-success-transparent">{{ t('ignis.account.totp_on') }}</span>
         {{ t('ignis.account.totp_on_info') }}</p>
       <form method="post" class="row g-2 align-items-end">
