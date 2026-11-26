@@ -11,9 +11,13 @@ void check(String description, bool condition) {
 
 final oldKey = '0123456789abcdef' * 4, newKey = 'fedcba9876543210' * 4;
 
+/// This file compiled once to kernel: `dart <file>.dart` re-compiles all of package:ignis from source in every
+/// child (~3 s of CPU each, 14 children) — on a loaded machine that alone ran into the test timeout.
+late final String kernel;
+
 /// Child: `enc <context|-> <text>`, `dec <context|-> <ciphertext>`, `re <context> <ciphertext>`, `prev`.
 Future<String> child(List<String> a, {required String key, String? previous}) async {
-  final r = await Process.run(Platform.resolvedExecutable, [Platform.script.toFilePath(), ...a],
+  final r = await Process.run(Platform.resolvedExecutable, [kernel, ...a],
       environment: {'IGNIS_KEY': key, if (previous != null) 'IGNIS_KEY_PREVIOUS': previous});
   if (r.exitCode != 0) throw StateError('child ${a.first}: ${r.stderr}');
   return r.stdout as String;
@@ -38,6 +42,18 @@ Future<void> main(List<String> a) async {
     }
     return;
   }
+  final tmp = await Directory.systemTemp.createTemp('ignis_key_rotation');
+  kernel = '${tmp.path}/child.dill';
+  final c = await Process.run(Platform.resolvedExecutable, ['compile', 'kernel', Platform.script.toFilePath(), '-o', kernel]);
+  if (c.exitCode != 0) throw StateError('compile kernel: ${c.stdout}${c.stderr}');
+  try {
+    await _checks();
+  } finally {
+    await tmp.delete(recursive: true);
+  }
+}
+
+Future<void> _checks() async {
   final v2 = await child(['enc', 'totp|admin', 'SECRET'], key: oldKey);
   final v1 = await child(['enc', '-', 'legacy'], key: oldKey);
   check('without IGNIS_KEY_PREVIOUS an old ciphertext is unreadable',

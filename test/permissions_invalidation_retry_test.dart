@@ -74,9 +74,11 @@ Future<void> _child() async {
     await Permissions.invalidateMany(many);
   } catch (_) {}
   await Redis.cmd(['TESTRESET']);
-  // poll until one retry round is through (10000 EVALs to the fake take a few seconds)
+  // poll until one retry round is through (10000 EVALs to the fake take a few seconds). The loop may be asleep in
+  // its backoff (up to retryMax after the failures above), so the window covers a whole backoff, whatever its phase.
   var distinct = 0;
-  for (var i = 0; i < 300; i++) {
+  final roundBy = DateTime.now().add(Permissions.retryMax + const Duration(seconds: 15));
+  while (DateTime.now().isBefore(roundBy)) {
     await Future.delayed(const Duration(milliseconds: 100));
     final d = await Redis.cmd(['TESTDISTINCT']) as int;
     if (d > 0 && d == distinct) break;

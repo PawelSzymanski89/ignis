@@ -29,6 +29,16 @@
   (`perm:{login}` + generation bump). Since IGNIS-052.6 it still deleted the old `perm:<login>` key, so the
   new entries stayed until their TTL (IGNIS-052.7).
 
+### Tests
+
+- Three timing-sensitive tests made stable (IGNIS-052.8). `api_body_budget_test` reads the answer while it is
+  still writing the body and records what the server answered: a body over the budget must get 503 + `Retry-After`
+  from the server, and a client-side connection reset (the server closes mid-body) is accepted only for a request
+  the server did answer with that 503. `permissions_invalidation_retry_test` waits for a retry round for `retryMax`
+  + 15 s (a whole backoff plus the round itself) instead of ~30 s (the `≤ 10000` bound is unchanged). `key_rotation_test` compiles
+  itself to kernel once instead of compiling `package:ignis` from source in each of its 14 child processes
+  (~45 s → ~6 s), which ran into the test timeout on a loaded machine.
+
 ## 0.5.1 — 2026-11-26
 
 ### Fixed

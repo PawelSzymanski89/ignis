@@ -43,7 +43,12 @@ Future<void> main(List<String> args) async {
         BudgetApi.new)
   ]));
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-  server.listen((req) => Engine.guarded(req, () => dispatch(req, const [])));
+  // what the server answered (status, Retry-After) — the client may not get to read it, see [rejected]
+  final served = <(int, String?)>[];
+  server.listen((req) async {
+    await Engine.guarded(req, () => dispatch(req, const []));
+    served.add((req.response.statusCode, req.response.headers.value(HttpHeaders.retryAfterHeader)));
+  });
 
   // raw socket: the body can stop half-way and the connection can be dropped
   Future<Socket> start(int length, int sent, {bool gz = false}) async {
@@ -55,28 +60,41 @@ Future<void> main(List<String> args) async {
     return s;
   }
 
+  // the answer is read while the body is still being written: an early 503 closes the connection mid-body
   Future<String> finish(Socket s, List<int> rest) async {
+    final got = <int>[];
+    final read = s.listen(got.addAll).asFuture<void>().then((_) {}, onError: (_) {}); // reset after an early answer
     try {
       s.add(rest);
       await s.flush();
     } catch (_) {}
-    try {
-      return await s.cast<List<int>>().transform(latin1.decoder).join();
-    } catch (_) {
-      return ''; // reset after an early answer
-    }
+    await read;
+    return latin1.decode(got);
   }
 
   Future<String> post(List<int> body, {bool gz = false}) async => finish(await start(body.length, 0, gz: gz), body);
   int status(String response) => response.isEmpty ? -1 : int.parse(response.split(' ')[1]);
   Future<void> settle() => Future<void>.delayed(const Duration(milliseconds: 400));
 
+  // A body over the budget: the server must answer 503 + Retry-After. The client normally reads it; a connection
+  // reset while it is still writing the body (the server closes after the early answer) is accepted only when the
+  // server did answer that very request with 503 + Retry-After — never a reset alone.
+  Future<void> rejected(String what, List<int> body, {bool gz = false}) async {
+    final before = served.length;
+    final r = await post(body, gz: gz);
+    for (var i = 0; i < 50 && served.length == before; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    final s = served.length > before ? served[before] : null;
+    check('$what → the server answered 503 with Retry-After', s != null && s.$1 == 503 && s.$2 != null);
+    check('…and the client got that 503 with Retry-After, or a reset while still sending the body (got ${status(r)})',
+        status(r) == -1 || (status(r) == 503 && r.toLowerCase().contains('retry-after:')));
+  }
+
   final a = await start((1.5 * mb).round(), (1.2 * mb).round());
   final b = await start((1.5 * mb).round(), (1.2 * mb).round());
   await settle();
-  final c = await post(List.filled(mb, 0x61));
-  check('a third body over the shared budget → 503', status(c) == 503);
-  check('…with Retry-After', c.toLowerCase().contains('retry-after:'));
+  await rejected('a third body over the shared budget', List.filled(mb, 0x61));
   final ra = await finish(a, List.filled((0.3 * mb).round(), 0x61));
   final rb = await finish(b, List.filled((0.3 * mb).round(), 0x61));
   check('the two bodies within the budget finish normally', status(ra) == 200 && status(rb) == 200);
@@ -92,9 +110,7 @@ Future<void> main(List<String> args) async {
   final bomb = gzip.encode(List.filled(4 * mb - 10, 0x61));
   final held = await start((1.5 * mb).round(), (1.2 * mb).round());
   await settle();
-  final g = await post(bomb, gz: true);
-  check('inflated gzip bytes count against the budget too → 503', status(g) == 503);
-  check('…with Retry-After', g.toLowerCase().contains('retry-after:'));
+  await rejected('inflated gzip bytes count against the budget too', bomb, gz: true);
   check('…small on the wire', bomb.length < 64 * 1024);
   await finish(held, List.filled((0.3 * mb).round(), 0x61));
   check('IGNIS_API_BODY_BUDGET_MB is read at start-up', Engine.apiBodyBudget == 3 * mb);
