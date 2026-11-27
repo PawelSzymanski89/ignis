@@ -274,7 +274,13 @@ abstract class PageEngine {
   void allowOrigin(String origin) {
     header('Access-Control-Allow-Origin', origin);
     header('Access-Control-Expose-Headers', 'Retry-After');
-    header('Vary', 'Origin');
+    // added to a Vary the page set, not over it (the HTML Vary is added at flush)
+    final vary = _headers['Vary'];
+    if (vary == null || vary.isEmpty) {
+      header('Vary', 'Origin');
+    } else if (!vary.split(',').map((v) => v.trim().toLowerCase()).contains('origin')) {
+      header('Vary', '$vary, Origin');
+    }
   }
 
   /// Sets a response header.

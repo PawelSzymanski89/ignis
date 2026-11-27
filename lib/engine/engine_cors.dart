@@ -18,5 +18,5 @@ void _preflight(HttpHeaders h, Page meta, String? origin, String? headerValues) 
   h.set('Access-Control-Allow-Methods', [...(meta.methods.isEmpty ? const ['GET', 'POST'] : meta.methods), 'OPTIONS'].join(', '));
   if (headerValues != null && headerValues.isNotEmpty) h.set('Access-Control-Allow-Headers', headerValues);
   h.set('Access-Control-Max-Age', '86400');
-  h.set('Vary', 'Origin');
+  h.add('Vary', 'Origin'); // next to any Vary already set
 }
