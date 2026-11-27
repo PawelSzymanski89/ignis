@@ -9,6 +9,38 @@
   it from the current context. Before, such a save silently wrote nothing and reported success. A save that changes
   no value still succeeds (PostgreSQL counts matched rows). `Orm.delete<T>(id)` now returns `Future<bool>`: true
   when a row was deleted, false when there was none (no exception) (IGNIS-053.4).
+- `IGNIS_SCHEMA` accepts only unset/empty (= `update`), `update`, `validate` and `none`; anything else stops the
+  start with a `StateError`. Before, a typo (`valdate`) or an empty value ran the DDL of `update` but skipped the
+  data migrations (IGNIS-053.8).
+
+### Added
+
+- `IGNIS_REQUIRE_BACKEND_TLS=1` (opt-in) refuses to start while any backend TLS warning applies (PostgreSQL, Redis
+  or S3 outside loopback without TLS, `IGNIS_DB_SSL=require` on a remote host). Unset/empty: warnings only, as
+  before; any other value refuses to start (IGNIS-053.9).
+- Start-up warning listing `AdminPage` routes without `@Page(requires:)` — every signed-in panel account can open
+  them. In the core only `/admin/account` is listed (deliberately open: own password and 2FA) (IGNIS-053.6).
+- Start-up warning when a `@Page(cors: true)` route exists and `Engine.preflightOrigin` is not set — the preflight
+  then lets every Origin through and only each page's `allowOrigin` decides (IGNIS-053.7).
+
+### Fixed
+
+- `Permissions.saveSetting` drops the settings cache (`settings:<service>`) after COMMIT. Before, it dropped the
+  wrong key (`perm:{settings:<service>}`), so a changed setting stayed invisible for up to 60 s on every node; a
+  failed Redis delete is logged (IGNIS-053.1).
+- `/assets/` and `Mount` paths with an empty segment (`//`, a leading or trailing `/`), `\` or `%2F` get 400. Before,
+  every such alias of one file added its own `assetVersions` / gzip cache entry — unbounded memory growth
+  (IGNIS-053.2).
+- Staff sign-in (and password confirmation) never accepts an account with an empty `pass_hash`. Before, the empty
+  hash was replaced by `Db.emptyHash` and the result of that comparison was accepted, so the (public) password
+  behind `emptyHash` signed in. bcrypt still runs on `emptyHash` (timing). Staff and customer accounts share
+  `Db.passwordMatches` (IGNIS-053.3).
+- `Permissions.changePassword` without `all` does nothing for an account outside the service (`ours`). Before,
+  the UPDATE was scoped, but `Sessions.destroyAll` still deleted the other account's session tokens (IGNIS-053.5).
+- `folders.created_at` is written in UTC (`…Z`), like `files.uploaded_at`. Existing rows keep their local
+  time (IGNIS-053.10).
+- The CSRF double-submit check compares the form token with the cookie in constant time (`Signing.equal`)
+  (IGNIS-053.11).
 
 ## 0.5.2 — 2026-11-26
 

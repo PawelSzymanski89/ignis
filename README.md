@@ -919,8 +919,10 @@ Redis-only session tests check `IGNIS_REDIS_HOST` instead). Engineering rules ar
 
 ## Status
 
-Version **0.4.2** — `Orm.save` / `upsert(ifUnchanged:)` optimistic lock for edits from a stale copy
-(`StaleEntity`). 0.4.1: owner-only Redis lock release/extend (`Redis.delIfEqual` / `expireIfEqual`) and
+Version **0.5.3** (unreleased) — review fixes: settings cache invalidation, asset path aliases, empty staff
+password hash, `Orm.save` of a row that is not there throws `StaleEntity` (⚠ behaviour change), strict
+`IGNIS_SCHEMA`, opt-in `IGNIS_REQUIRE_BACKEND_TLS`; see the [changelog](CHANGELOG.md). 0.4.2: `Orm.save` /
+`upsert(ifUnchanged:)` optimistic lock for edits from a stale copy (`StaleEntity`). 0.4.1: owner-only Redis lock release/extend (`Redis.delIfEqual` / `expireIfEqual`) and
 `Orm.save` / `upsert(only:)`. 0.4.0: security hardening (`api: true` routes get no session/CSRF cookies,
 `Storage.read` takes the service; see the [changelog](CHANGELOG.md)). 0.3.0: pages and entities from a registry generated at build time, so a node
 also runs as a native binary; apps take a one-time step (`build_runner`, generate, pass `registry:`) — see the
