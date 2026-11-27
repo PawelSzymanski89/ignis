@@ -134,6 +134,17 @@ class Ignis {
     ];
   }
 
+  /// Start-up error for `IGNIS_REQUIRE_BACKEND_TLS` (opt-in): `1` refuses to start while [backendTlsWarnings] is not
+  /// empty; unset or empty → null (warnings only); any other value is an error itself.
+  static String? backendTlsError(Map<String, String> env) {
+    final v = env['IGNIS_REQUIRE_BACKEND_TLS'] ?? '';
+    if (v == '') return null;
+    if (v != '1') return 'IGNIS_REQUIRE_BACKEND_TLS must be empty or 1, got "$v" — the node will not start';
+    final w = backendTlsWarnings(env);
+    if (w.isEmpty) return null;
+    return 'IGNIS_REQUIRE_BACKEND_TLS=1 — the node will not start:\n  ${w.join('\n  ')}';
+  }
+
   static bool _remote(String? host) {
     if (host == null || host.isEmpty || host == 'localhost' || host.startsWith('/')) return false;
     return !(InternetAddress.tryParse(host)?.isLoopback ?? false);
@@ -226,6 +237,8 @@ class Ignis {
     Storage.transferDeadline = Duration(seconds: envInt('IGNIS_S3_TIMEOUT_S', env['IGNIS_S3_TIMEOUT_S'], 60));
     final proxiesError = trustedProxiesError(env);
     if (proxiesError != null) throw StateError(proxiesError);
+    final tlsError = backendTlsError(env);
+    if (tlsError != null) throw StateError(tlsError);
     backendTlsWarnings(env).forEach(stdout.writeln);
     nodeWarnings(env).forEach(stdout.writeln);
     if (Crypto.previousKeyInvalid) {
