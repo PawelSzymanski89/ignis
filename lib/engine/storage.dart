@@ -329,12 +329,15 @@ class Storage {
 
   /// Deletes the reference and the object. Order matters: storage first, then
   /// the database — the other way round would leave an object without a row, i.e. garbage nobody can find.
+  /// Like [upload], the transaction so far is committed before the transfer (no pool connection held while S3
+  /// answers) and the transfer has [transferDeadline].
   static Future<void> deleteFile(int id, int service) async {
     final p = await file(id, service);
     if (p == null) return;
-    // no try: an undeleted object is still public under /files/<key>, so the row stays and the error
-    // goes to the caller — deleting again is safe (S3 DELETE of a missing object = success)
-    await client.removeObject(bucket, p.key);
+    await Db.commit();
+    // no try: an undeleted object is still public under /files/<key>, so the row stays and the error (also the
+    // timeout) goes to the caller — deleting again is safe (S3 DELETE of a missing object = success)
+    await client.removeObject(bucket, p.key).timeout(transferDeadline);
     await (await Db.connect()).execute(
         Sql.named('DELETE FROM files WHERE id=@i AND service=@u'),
         parameters: {'i': id, 'u': service});
