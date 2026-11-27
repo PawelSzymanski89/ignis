@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.3 — Unreleased
+
+### Changed
+
+- ⚠ Behaviour change: `Orm.save` of an existing entity (UPDATE without `ifUnchanged:`) throws `StaleEntity` when
+  the UPDATE matched no row — the row was deleted meanwhile, or it belongs to another tenant/service and RLS hides
+  it from the current context. Before, such a save silently wrote nothing and reported success. A save that changes
+  no value still succeeds (PostgreSQL counts matched rows). `Orm.delete<T>(id)` now returns `Future<bool>`: true
+  when a row was deleted, false when there was none (no exception) (IGNIS-053.4).
+
 ## 0.5.2 — 2026-11-26
 
 ### Fixed

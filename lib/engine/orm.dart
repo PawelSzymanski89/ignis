@@ -85,6 +85,7 @@ class Orm {
   /// [ifUnchanged]: [stamp] of the [only] columns taken when the copy was read (e.g. a hidden form field); the row is
   /// locked (`FOR UPDATE`) and, if those columns differ now (or the row is gone), [StaleEntity] is thrown and
   /// nothing is written — two edits of the same form from two stale copies: the second is refused, not applied.
+  /// An UPDATE that matches no row (deleted meanwhile, or hidden from this context by RLS) throws [StaleEntity] too.
   static Future<void> save(Object entity, {Iterable<String>? only, String? ifUnchanged}) async {
     final meta = EntityRegistry.byInstance(entity);
     final pk = meta.fields.firstWhere((f) => f.name == meta.pk);
@@ -117,7 +118,7 @@ class Orm {
             if (f.name == meta.pk || only == null || only.contains(f.name)) f.name: f.get(entity),
         };
         if (ifUnchanged == null) {
-          await conn.execute(update, parameters: params);
+          if ((await conn.execute(update, parameters: params)).affectedRows == 0) throw StaleEntity(meta.typeName, id);
         } else {
           await conn.runTx((tx) async {
             if (await _current(tx, meta, id, only!) != ifUnchanged || ifUnchanged.isEmpty) {
@@ -192,11 +193,13 @@ class Orm {
   }
 
   /// Deletes an entity of type T by primary key (and its Redis copy when @Cached).
-  static Future<void> delete<T>(Object id) async {
+  /// true = a row was deleted; false = no such row (or not visible in this context).
+  static Future<bool> delete<T>(Object id) async {
     final meta = EntityRegistry.byType(T);
-    await (await Db.connect()).execute(
+    final r = await (await Db.connect()).execute(
         Sql.named('DELETE FROM ${meta.table} WHERE ${meta.pk}=@id'), parameters: {'id': id});
     if (meta.cached) await _invalidate(meta, id);
+    return r.affectedRows > 0;
   }
 
   /// Reads one entity of type T by primary key (from the cache when @Cached, otherwise from the database).
