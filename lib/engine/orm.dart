@@ -235,11 +235,15 @@ class Orm {
     return _hydrate(meta, map) as T;
   }
 
-  /// Reads all entities of type T (v0: from the database).
-  static Future<List<T>> readAll<T>() async {
+  /// Reads all entities of type T (v0: from the database), ordered by the key. With [limit]: one page of at most
+  /// [limit] rows from [offset] (without [limit], [offset] is ignored and every row is read).
+  static Future<List<T>> readAll<T>({int? limit, int offset = 0}) async {
     final meta = EntityRegistry.byType(T);
     final conn = await Db.connect();
-    final res = await conn.execute('SELECT * FROM ${meta.table} ORDER BY ${meta.pk}');
+    final res = limit == null
+        ? await conn.execute('SELECT * FROM ${meta.table} ORDER BY ${meta.pk}')
+        : await conn.execute(Sql.named('SELECT * FROM ${meta.table} ORDER BY ${meta.pk} LIMIT @l OFFSET @o'),
+            parameters: {'l': limit, 'o': offset});
     return res.map((row) => _hydrate(meta, row.toColumnMap()) as T).toList();
   }
 

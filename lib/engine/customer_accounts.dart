@@ -239,11 +239,13 @@ class CustomerAccounts {
     return {for (final r in rows) (r[0] as String).substring(p.length): r[1] as int};
   }
 
-  /// E-mails of a service's customer accounts (for the panel list).
-  static Future<List<String>> list(int service) async {
+  /// E-mails of a service's customer accounts (for the panel list), ordered. With [limit]: one page of at most
+  /// [limit] accounts from [offset] (without [limit], [offset] is ignored and every account is listed).
+  static Future<List<String>> list(int service, {int? limit, int offset = 0}) async {
     final rows = await (await Db.connect()).execute(
-        Sql.named("SELECT username FROM users WHERE realm='customer' AND service=@s ORDER BY username"),
-        parameters: {'s': service});
+        Sql.named("SELECT username FROM users WHERE realm='customer' AND service=@s ORDER BY username"
+            "${limit == null ? '' : ' LIMIT @l OFFSET @o'}"),
+        parameters: {'s': service, if (limit != null) ...{'l': limit, 'o': offset}});
     final p = 'c:$service:';
     return [for (final r in rows) if ((r[0] as String).startsWith(p)) (r[0] as String).substring(p.length)];
   }

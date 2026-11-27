@@ -1466,6 +1466,6 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       'lib/pages/settings_page.dart',
       'lib/src/builder/registry_builder.dart',
     ],
-    sum: 'ce3d7f3b2561c25829eb29484ff6289d597b32e900f1bab462315e14dc075b5a',
+    sum: '3e1aea626703902f37379d30aaab80be9bcc17494b610c86124ad3a44616efe2',
   ),
 );
