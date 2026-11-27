@@ -11,6 +11,7 @@
 // ============================================================================
 
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart' show sha256;
@@ -128,6 +129,7 @@ class CustomerAccounts {
   /// and it MUST NOT wait for it in the request: `await`ing the send only for existing accounts reveals them by response
   /// time. Send in the background (`unawaited`/a queue), respond right away.
   static Future<String?> resetToken(int service, String email, {String ip = ''}) async {
+    _warnEmptyIp(ip);
     final e = email.trim().toLowerCase();
     if (!validEmail(e)) return null;
     if (await overLimit('rl:reset:ip:${rateLimitAddress(ip)}', 10, 3600) ||
@@ -171,6 +173,16 @@ class CustomerAccounts {
     return await setPassword(service, e, password) ?? '';
   }
 
+  static bool _emptyIpWarned = false;
+
+  /// Once per process: without `ip:` every client shares one address limit — one attacker locks everyone out.
+  static void _warnEmptyIp(String ip) {
+    if (ip.isNotEmpty || _emptyIpWarned) return;
+    _emptyIpWarned = true;
+    stderr.writeln('Ignis WARNING: CustomerAccounts.loginWithPassword / resetToken called without ip: — all clients '
+        'share one rate-limit bucket; pass ip: remoteAddress (PageEngine)');
+  }
+
   static const resetMessage = 'The password reset link is invalid or has expired.';
 
   /// Messages of [loginWithPassword] — constants, so the front can swap them for a translation.
@@ -180,6 +192,7 @@ class CustomerAccounts {
   /// Sign-in with e-mail and password. Returns (session token, '') or (null, message).
   static Future<(String?, String)> loginWithPassword(int service, String email, String password,
       {String ip = ''}) async {
+    _warnEmptyIp(ip);
     final e = email.trim().toLowerCase();
     if (!validEmail(e)) return (null, passwordMessage); // garbage does not create keys in Redis
     // address first (30 / 5 min), then the account+address pair (5 / 5 min) — like panel sign-in
