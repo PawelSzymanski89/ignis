@@ -276,9 +276,18 @@ class Schema {
     }
   }
 
+  /// `IGNIS_SCHEMA` from [env]: unset or empty → `update`; `update`, `validate`, `none` as given; anything else →
+  /// [StateError] — a typo must not run as an unnamed mode (DDL like update, but without the migrations).
+  static String mode(Map<String, String> env) {
+    final v = env['IGNIS_SCHEMA'] ?? '';
+    if (v == '') return 'update';
+    if (const {'update', 'validate', 'none'}.contains(v)) return v;
+    throw StateError('IGNIS_SCHEMA must be empty, update, validate or none, got "$v" — the node will not start');
+  }
+
   /// Brings the database schema in line with the @Entity classes.
   static Future<void> sync() async {
-    final mode = Platform.environment['IGNIS_SCHEMA'] ?? 'update';
+    final mode = Schema.mode(Platform.environment);
     final requireRuntimeRole = Platform.environment['IGNIS_REQUIRE_RUNTIME_ROLE'] ?? '';
     if (requireRuntimeRole != '' && requireRuntimeRole != '1') {
       throw StateError('IGNIS_REQUIRE_RUNTIME_ROLE must be empty or 1, got "$requireRuntimeRole" — the node will not start');

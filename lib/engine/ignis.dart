@@ -243,7 +243,7 @@ class Ignis {
 
     // AUTO-SCHEMA: tables and columns come from @Entity classes (IGNIS_SCHEMA=update|validate|none).
     // So a new node needs no migration file — see engine/schema.dart.
-    stdout.writeln('Ignis schema (${env['IGNIS_SCHEMA'] ?? 'update'}):');
+    stdout.writeln('Ignis schema (${Schema.mode(env)}):');
     // ONE start-up lock around both: another node never sees the schema without the seed
     await Schema.underStartLock(() async {
       await Schema.sync();
