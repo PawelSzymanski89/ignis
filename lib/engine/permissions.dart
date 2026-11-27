@@ -702,9 +702,13 @@ class Permissions {
         'v': secret ? Crypto.encrypt(value, context: '$service|$key') : value,
       },
     );
-    try {
-      // AFTER the write — otherwise another node would rebuild the cache with the old value; retried on failure
-      await _del(['settings:$service'], 60);
-    } catch (_) {/* logged in _del */}
+    // after COMMIT — otherwise another node would rebuild the cache with the old value
+    await Db.afterTransaction(() async {
+      try {
+        await Redis.del('settings:$service');
+      } catch (e) {
+        _logRedis('settings cache not dropped', e);
+      }
+    });
   }
 }
