@@ -139,7 +139,7 @@ class Storage {
                    ON CONFLICT (path, service) DO NOTHING RETURNING id'''),
       parameters: {
         'n': clean, 's': path, 'r': parentId, 'k': actor,
-        'd': DateTime.now().toIso8601String(), 'u': service,
+        'd': DateTime.now().toUtc().toIso8601String(), 'u': service,
       },
     );
     if (r.isEmpty) throw const StorageException('ignis.msg.storage.folder_exists', 'A folder with this name already exists here.');
