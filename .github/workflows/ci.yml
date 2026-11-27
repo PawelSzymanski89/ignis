@@ -25,6 +25,8 @@ jobs:
       - name: Install redis-server
         run: sudo apt-get update && sudo apt-get install -y redis-server
       - run: dart pub get
+      - name: Generated registry is current
+        run: dart run build_runner build --delete-conflicting-outputs && git diff --exit-code lib/ignis_registry.g.dart
       - run: dart analyze --fatal-infos
       - name: Tests without a database
         run: |
@@ -38,6 +40,9 @@ jobs:
       # Starts its own PostgreSQL (pinned @embedded-postgres binaries) and redis-server on private ports.
       - name: Tests on PostgreSQL and Redis
         run: tool/pg_test.sh
+      # AOT binary vs JIT on a fresh database (the cluster and redis-server pg_test.sh left running)
+      - name: AOT smoke
+        run: tool/aot_smoke.sh
 
   # Secrets in the pushed / PR commits and known advisories in pubspec.lock; exceptions: SECURITY.md, "CI scans".
   scan:

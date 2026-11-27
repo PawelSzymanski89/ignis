@@ -19,6 +19,8 @@ echo "binary: $(stat -c %s "$W/server") bytes ($(du -h "$W/server" | cut -f1))"
 # an AOT binary has no package config: the package's templates/, i18n/, web/ go next to it
 mkdir -p "$W/pkg" "$W/run" && cp -r templates i18n web "$W/pkg/"
 
+# IGNIS_REQUIRE_PLATFORM_2FA=0 below: the smoke signs in with a password only; with the required platform 2FA (0.5.0)
+# every panel page but /admin/account redirects there (like the fixtures of pg_test.sh)
 H="Host: localhost"; PASS='Smoke-Test-Pass-123!'; NEW='Smoke-Changed-Pass-456!'
 fail=0
 run() { # label, command…
@@ -31,7 +33,7 @@ run() { # label, command…
   (cd "$W/run" && exec env IGNIS_DB_HOST=127.0.0.1 IGNIS_DB_PORT=$PORT IGNIS_DB_NAME=ignistest IGNIS_DB_USER=ignis_app \
     IGNIS_DB_PASS=ignisapp IGNIS_REDIS_HOST=127.0.0.1 IGNIS_REDIS_PORT=$RPORT IGNIS_DOMAINS=localhost \
     IGNIS_KEY=$(printf '0123456789abcdef%.0s' {1..4}) IGNIS_TRUSTED_PROXIES=none IGNIS_PORT=$port \
-    IGNIS_ADMIN_PASS="$PASS" IGNIS_PACKAGE_ROOT="$W/pkg" "$@") > "$W/$label.log" 2>&1 &
+    IGNIS_ADMIN_PASS="$PASS" IGNIS_PACKAGE_ROOT="$W/pkg" IGNIS_REQUIRE_PLATFORM_2FA=0 "$@") > "$W/$label.log" 2>&1 &
   pid=$!
   for _ in $(seq 1 1200); do
     c=$(curl -s -H "$H" -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health); [ "$c" = 200 ] && break; sleep 0.05
