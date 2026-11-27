@@ -13,7 +13,6 @@
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:bcrypt/bcrypt.dart';
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:postgres/postgres.dart' show Sql, TypedValue;
 import 'package:postgres/postgres.dart' as pg show Type;
@@ -78,11 +77,7 @@ class CustomerAccounts {
   static String? passwordError(String password) => Db.passwordError(password);
 
   /// An account without a password (link/SSO) runs bcrypt on a dummy — timing does not reveal which accounts have a password.
-  static bool passwordMatches(String password, String hash) {
-    if (Db.passwordTooLong(password)) return false;
-    final ok = BCrypt.checkpw(password, hash.isEmpty ? Db.emptyHash : hash);
-    return ok && hash.isNotEmpty;
-  }
+  static bool passwordMatches(String password, String hash) => Db.passwordMatches(password, hash);
 
   /// Password set by an admin — creates the account or replaces the password and ends the customer's sessions.
   static Future<String?> setPassword(int service, String email, String password) async {

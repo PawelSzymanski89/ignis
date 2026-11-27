@@ -572,9 +572,9 @@ class Db {
       Sql.named("SELECT username, pass_hash, session_epoch FROM users WHERE username=@u AND realm='staff'"),
       parameters: {'u': username},
     );
-    final stored = rows.isEmpty || (rows.first[1] as String).isEmpty ? emptyHash : rows.first[1] as String;
+    final stored = rows.isEmpty ? '' : rows.first[1] as String;
     await release(); // bcrypt without holding a pool connection
-    final ok = await bcrypt(() => BCrypt.checkpw(password, stored));
+    final ok = await bcrypt(() => passwordMatches(password, stored));
     if (rows.isEmpty || !ok) return null;
     if (weakHash(stored)) {
       final fresh = await bcrypt(() => hashPassword(password));
@@ -582,6 +582,14 @@ class Db {
           parameters: {'u': username, 'h': fresh, 's': stored});
     }
     return (rows.first[0] as String, rows.first[2] as int);
+  }
+
+  /// Whether [password] matches the stored bcrypt [hash]. An empty hash (no password) never matches, but bcrypt
+  /// still runs on [emptyHash] — timing does not reveal which accounts have a password.
+  static bool passwordMatches(String password, String hash) {
+    if (passwordTooLong(password)) return false;
+    final ok = BCrypt.checkpw(password, hash.isEmpty ? emptyHash : hash);
+    return ok && hash.isNotEmpty;
   }
 
   /// bcrypt hash of a password (for creating/changing a user).
