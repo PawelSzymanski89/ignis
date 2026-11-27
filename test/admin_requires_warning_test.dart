@@ -1,5 +1,6 @@
 // IGNIS-053.6: PageRegistry.build() warns (log, not an exception) about AdminPage routes without `requires` — any
 // signed-in panel account of any package can open them. No database.
+// IGNIS-054.4: only `requires == null` warns; `requires: ''` = deliberately every signed-in panel account (AccountPage).
 // Run: dart run test/admin_requires_warning_test.dart
 import 'dart:io';
 
@@ -17,6 +18,8 @@ class OpenAdmin extends AdminPage {}
 
 class GuardedAdmin extends AdminPage {}
 
+class AnyoneAdmin extends AdminPage {}
+
 class PlainPage extends PageEngine {}
 
 List<String> build(IgnisRegistry r) {
@@ -30,18 +33,25 @@ void main() {
     testPage(const Page('/admin/open-x'), OpenAdmin.new, cookieAuth: true, adminPage: true),
     testPage(const Page('/admin/guarded-x', requires: 'x.view'), GuardedAdmin.new, cookieAuth: true, adminPage: true),
     testPage(const Page('/plain-x'), PlainPage.new),
+    testPage(const Page('/admin/anyone-x', requires: ''), AnyoneAdmin.new, cookieAuth: true, adminPage: true),
   ]));
   final w = lines.where((l) => l.contains('requires')).join('\n');
   check('an AdminPage without requires → a start-up warning naming the route', w.contains('/admin/open-x (OpenAdmin)'));
   check('…not the AdminPage with requires', !w.contains('/admin/guarded-x'));
   check('…not a plain PageEngine page', !w.contains('/plain-x'));
+  check("…not the AdminPage with requires: '' (deliberately open)", !w.contains('/admin/anyone-x'));
+  check("requires: '' lets every signed-in account in, like null",
+      EffectivePermissions(const [], const [], const []).allows('') &&
+          EffectivePermissions(const [], const ['*'], const []).allows(''));
   check('no warning when every AdminPage has requires', build(IgnisRegistry(entities: const [], pages: [
     testPage(const Page('/admin/guarded-x', requires: 'x.view'), GuardedAdmin.new, cookieAuth: true, adminPage: true),
   ])).every((l) => !l.contains('requires')));
 
   final core = build(ignisRegistry).where((l) => l.contains('requires')).join('\n');
   print('  core registry: $core');
-  check('core: /admin/account (deliberately without requires) is listed', core.contains('/admin/account (AccountPage)'));
+  check("core: zero warnings (/admin/account has requires: '')", core.isEmpty);
+  check("core: AccountPage declares requires: ''",
+      ignisRegistry.pages.singleWhere((p) => p.typeName == 'AccountPage').page.requires == '');
   print('\nALL PASSED');
 }
 

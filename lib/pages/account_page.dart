@@ -21,8 +21,10 @@ import '../engine/totp.dart';
 
 @Page('/admin/account',
     template: 'account.html',
-    // NO `requires`: every panel account changes its own password and 2FA, even without `dashboard.view` —
-    // otherwise an account that must change its password could not enter the only allowed page.
+    // `requires: ''` (no permission, on purpose): every panel account changes its own password and 2FA, even
+    // without `dashboard.view` — otherwise an account that must change its password could not enter the only
+    // allowed page.
+    requires: '',
     // NO `label`: the page is deliberately outside the side menu — it is entered
     // from the profile dropdown in the top bar, where everyone looks for it.
     exemptFromPasswordChange: true)

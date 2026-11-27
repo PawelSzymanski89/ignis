@@ -28,6 +28,7 @@ class Page {
 
   /// Required permission in the `section.action` convention (e.g. 'settings.view').
   /// Enforced by AdminPage.isAbleToSee(); the menu is filtered by the same requirement.
+  /// `''` = deliberately every signed-in account (no start-up warning for an AdminPage, unlike `null`).
   final String? requires;
 
   /// Label in the side menu. `null` = page outside the menu (login, actions, API).

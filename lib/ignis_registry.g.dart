@@ -690,7 +690,7 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
         '/admin/account',
         template: 'account.html',
         redirectIfNotAbleToSee: '/admin/login',
-        requires: null,
+        requires: '',
         label: null,
         icon: null,
         order: 100,
@@ -1466,6 +1466,6 @@ final ig.IgnisRegistry ignisRegistry = ig.IgnisRegistry(
       'lib/pages/settings_page.dart',
       'lib/src/builder/registry_builder.dart',
     ],
-    sum: 'd141dd296e71399dbdba43c355253ecbd537f4429d8411bd67a3c195d2196063',
+    sum: 'ad6cf1fe66f9636d46c2874be5f640e94cadeaea84b71026c73a1bee080fa1fe',
   ),
 );

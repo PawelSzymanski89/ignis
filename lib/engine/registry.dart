@@ -132,7 +132,8 @@ class PageRegistry {
     final refused = <String>[], open = <String>[];
     for (final p in source.pages) {
       if ((p.page.api || p.page.cors) && p.cookieAuth) refused.add('${p.page.route} (${p.typeName})');
-      if (p.adminPage && (p.page.requires ?? '').isEmpty) open.add('${p.page.route} (${p.typeName})');
+      // requires: '' = deliberately every signed-in panel account; only a missing requires warns
+      if (p.adminPage && p.page.requires == null) open.add('${p.page.route} (${p.typeName})');
       _routes[p.page.route] = PageRoute(p);
     }
     final cors = [for (final p in source.pages) if (p.page.cors) '${p.page.route} (${p.typeName})'];
@@ -143,7 +144,7 @@ class PageRegistry {
     }
     if (open.isNotEmpty) {
       stdout.writeln('Ignis WARNING: AdminPage routes without @Page(requires:) — every signed-in panel account can '
-          'open them: ${open.join(', ')}. Add requires: unless that is intended.');
+          "open them: ${open.join(', ')}. Add requires:, or requires: '' when that is intended.");
     }
     if (refused.isNotEmpty) {
       throw StateError('@Page(api: true) / @Page(cors: true) skip CSRF, so they must not authenticate by cookie; '
