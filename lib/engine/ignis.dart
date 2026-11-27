@@ -359,13 +359,18 @@ String versionAssets(String html, List<String> dirs) {
   });
 }
 
+/// A second spelling of a file path (`//`, leading or trailing `/`, `\`): each one would get its own entry in
+/// [assetVersions] / [_gzipped], so an attacker could grow them without bound.
+bool _aliasPath(String relative) =>
+    relative.contains('\\') || relative.isNotEmpty && relative.split('/').any((s) => s.isEmpty);
+
 /// Serves theme files from the asset directories. Outside the route registry — a file is not a page.
 Future<void> _staticFile(HttpRequest req, List<String> dirs) async {
   final res = req.response;
   try {
     // protection against leaving the directory (../../etc/passwd)
     final relative = Uri.decodeComponent(req.uri.path.substring('/assets/'.length));
-    if (relative.contains('..')) {
+    if (relative.contains('..') || _aliasPath(relative)) {
       res.statusCode = HttpStatus.badRequest;
       await res.close();
       return;
@@ -453,11 +458,16 @@ Future<void> serveMount(HttpRequest req, Mount m) async {
   final res = req.response;
   try {
     final relative = Uri.decodeComponent(req.uri.path.substring(m.prefix.length));
+    if (_aliasPath(relative)) {
+      res.statusCode = HttpStatus.badRequest;
+      await res.close();
+      return;
+    }
     final f = File('${m.catalog}/$relative');
     final st = req.method == 'GET' || req.method == 'HEAD' ? await f.stat() : null;
     if (st == null) {
       res.statusCode = HttpStatus.methodNotAllowed;
-    } else if (relative.isEmpty || relative.contains('..') || relative.contains('\\') ||
+    } else if (relative.isEmpty || relative.contains('..') ||
         st.type != FileSystemEntityType.file) {
       res.statusCode = HttpStatus.notFound;
     } else {
