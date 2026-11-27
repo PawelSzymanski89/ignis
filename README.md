@@ -181,7 +181,7 @@ environment:
   sdk: ^3.11.0
 dependencies:
   ignis:
-    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.5.3}
+    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.5.4}
 dev_dependencies:
   build_runner: ^2.4.0
 ```
@@ -924,7 +924,7 @@ Redis-only session tests check `IGNIS_REDIS_HOST` instead). Engineering rules ar
 
 ## Status
 
-Version **0.5.4** (unreleased) — review fixes: Redis keeps the connection on error replies, settings cache drop
+Version **0.5.4** — review fixes: Redis keeps the connection on error replies, settings cache drop
 retried, membership in a SUPERUSER / BYPASSRLS / owner role refused at start (⚠ check the runtime role before
 upgrading, SECURITY.md), `Storage.deleteFile` with a deadline, `limit:` / `offset:` on `Orm.readAll` and
 `CustomerAccounts.list`; see the [changelog](CHANGELOG.md). 0.5.3: settings cache invalidation, asset path aliases,
