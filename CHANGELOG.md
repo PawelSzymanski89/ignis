@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.5.4 — Unreleased
+
+### Changed
+
+- `requires: ''` on an `AdminPage` means "deliberately every signed-in panel account": the start-up warning about
+  `AdminPage` routes without `requires` (0.5.3) now lists only `requires == null`. `AccountPage` declares
+  `requires: ''`, so the core itself starts without the warning. Access is unchanged — `allows('')` is true, as
+  for `null` (IGNIS-054.4).
+- `Schema.checkRls` also refuses to start when the database role is a **member** (also `NOINHERIT`, also through
+  other roles) of a `SUPERUSER` or `BYPASSRLS` role — injected SQL could `SET ROLE` to it and leave RLS. The
+  ownership check behind `IGNIS_REQUIRE_RUNTIME_ROLE=1` (and the start-up warning) counts membership in the owner
+  role (`pg_has_role(…, 'MEMBER')` instead of `'USAGE'`), so a `NOINHERIT` member of the owner is refused too.
+  ⚠ A node whose role has such a membership no longer starts; check before upgrading (SECURITY.md, "Runtime
+  database role") (IGNIS-054.6).
+
+### Added
+
+- `Orm.readAll<T>({int? limit, int offset = 0})` and `CustomerAccounts.list(service, {int? limit, int offset = 0})`:
+  one page ordered by the key, as before; without `limit` every row, as before (IGNIS-054.9).
+- One stderr warning per process when `CustomerAccounts.loginWithPassword` / `resetToken` are called without `ip:`
+  — every client then shares one rate-limit bucket. The API is unchanged (IGNIS-054.7).
+- CI: the generated `lib/ignis_registry.g.dart` must match `build_runner build`, and `tool/aot_smoke.sh` runs after
+  the PostgreSQL tests (IGNIS-054.12).
+
+### Fixed
+
+- `permissions_invalidation_retry_test`: the fake Redis destroys each accepted socket when the child's side ends;
+  ~1000 half-open connections kept the test alive until the CI timeout (IGNIS-054.1).
+- `Redis.cmd` keeps the connection on an error reply from the server (`RedisError`: `-ERR`, `-NOAUTH` …) and rethrows
+  it; only a timeout or a socket error drops the connection. Before, every refused command opened a new TCP
+  connection (IGNIS-054.2).
+- `Permissions.saveSetting`: a failed drop of `settings:<service>` after COMMIT goes to the same retry queue as the
+  permission cache (the queue holds full Redis keys now) instead of only being logged (IGNIS-054.3).
+- `PageEngine.allowOrigin` and the CORS preflight add `Origin` to `Vary` instead of replacing a `Vary` set before
+  (IGNIS-054.5).
+- `Storage.deleteFile` commits the request transaction before deleting the object from S3 and limits the delete to
+  `Storage.transferDeadline`, like `upload` — a hanging S3 held a pool connection without a limit. Order and errors
+  are unchanged: object first; an S3 error (also the timeout) leaves the row and reaches the caller. ⚠ Writes of the
+  request before `deleteFile` are committed at that point (IGNIS-054.8).
+- `orm.dart` docs: the per-entity Redis lock of `Orm.save` is fail-open and only makes collisions rarer; protection
+  against a lost update is `only:` / `ifUnchanged:` (IGNIS-054.10).
+- Render: a test pins that objects with markup in `toString()` never print raw through jinja's String filters
+  (jinja 0.7.2 refuses them with a `TypeError`), and every default jinja filter must be listed as wrapped or
+  deliberately allowed, so a jinja upgrade forces a review (IGNIS-054.11).
+- `tool/aot_smoke.sh` runs with `IGNIS_REQUIRE_PLATFORM_2FA=0`; since 0.5.0 every panel page redirected its
+  password-only admin to `/admin/account` and the smoke failed (IGNIS-054.12).
+
 ## 0.5.3 — 2026-11-27
 
 ### Changed

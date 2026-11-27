@@ -301,7 +301,9 @@ flowchart LR
 ```
 
 1. **Annotations.** `@Entity('table', pk:, unique:)` maps a class to a table; `@Cached` adds a shared Redis
-   copy; `@Page(route, template:, requires:, label:, group:, order:)` makes a route and a menu entry;
+   copy; `@Page(route, template:, requires:, label:, group:, order:)` makes a route and a menu entry
+   (`requires: ''` = deliberately every signed-in panel account; an `AdminPage` without `requires` gets a start-up
+   warning);
    `@Action('name')` marks a method called on POST with `triggerAction=name`.
 2. **Generator.** `ignis` carries a build_runner builder (`ignis|registry`) that applies itself to every
    package depending on `ignis` — no `build.yaml`, no stub file in your app. It reads **every `.dart` file under
@@ -691,7 +693,9 @@ reads the same copy:
   not fill the copy, so a rolled-back write or savepoint never reaches Redis.
 - `DateTime` fields are stored in UTC. An entry that cannot be read back counts as a miss and is dropped.
 - `@Cached(ttl: 3600)` expires the copy after an hour. `ttl: 0` (the default) means no expiry.
-- `readEntitys<T>()` / `Orm.readAll` and `Orm.pick` always go to the database.
+- `readEntitys<T>()` / `Orm.readAll` and `Orm.pick` always go to the database. `Orm.readAll<T>(limit: 50, offset: 100)`
+  reads one page ordered by the key (without `limit`: every row); `CustomerAccounts.list(service, limit:, offset:)`
+  pages the customer accounts the same way.
 
 Use `@Cached` for global, rarely-changing data (dictionaries, platform config).
 
@@ -784,8 +788,9 @@ Ignis.start(
 
 Everything that must agree across nodes — sessions, permissions, settings, entity copies — lives in
 Redis. So **every node sees the same state**, and a plain round-robin load balancer works without sticky
-sessions. Every Redis call has a **2 s limit**. After an error the connection is dropped and the next call
-opens a new one, so a Redis restart does not require restarting the nodes.
+sessions. Every Redis call has a **2 s limit**. After a timeout or a socket error the connection is dropped and the
+next call opens a new one, so a Redis restart does not require restarting the nodes; an error reply (`-ERR`,
+`-NOAUTH` …) goes to the caller and keeps the connection.
 
 ## Architecture
 
@@ -919,9 +924,12 @@ Redis-only session tests check `IGNIS_REDIS_HOST` instead). Engineering rules ar
 
 ## Status
 
-Version **0.5.3** (unreleased) — review fixes: settings cache invalidation, asset path aliases, empty staff
-password hash, `Orm.save` of a row that is not there throws `StaleEntity` (⚠ behaviour change), strict
-`IGNIS_SCHEMA`, opt-in `IGNIS_REQUIRE_BACKEND_TLS`; see the [changelog](CHANGELOG.md). 0.4.2: `Orm.save` /
+Version **0.5.4** (unreleased) — review fixes: Redis keeps the connection on error replies, settings cache drop
+retried, membership in a SUPERUSER / BYPASSRLS / owner role refused at start (⚠ check the runtime role before
+upgrading, SECURITY.md), `Storage.deleteFile` with a deadline, `limit:` / `offset:` on `Orm.readAll` and
+`CustomerAccounts.list`; see the [changelog](CHANGELOG.md). 0.5.3: settings cache invalidation, asset path aliases,
+empty staff password hash, `Orm.save` of a row that is not there throws `StaleEntity` (⚠ behaviour change), strict
+`IGNIS_SCHEMA`, opt-in `IGNIS_REQUIRE_BACKEND_TLS`. 0.4.2: `Orm.save` /
 `upsert(ifUnchanged:)` optimistic lock for edits from a stale copy (`StaleEntity`). 0.4.1: owner-only Redis lock release/extend (`Redis.delIfEqual` / `expireIfEqual`) and
 `Orm.save` / `upsert(only:)`. 0.4.0: security hardening (`api: true` routes get no session/CSRF cookies,
 `Storage.read` takes the service; see the [changelog](CHANGELOG.md)). 0.3.0: pages and entities from a registry generated at build time, so a node

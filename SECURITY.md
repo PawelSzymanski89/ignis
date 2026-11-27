@@ -1,6 +1,6 @@
 # Ignis security
 
-This document describes the **actual state** of Ignis 0.5.3, not intentions. Every point maps to a
+This document describes the **actual state** of Ignis 0.5.4, not intentions. Every point maps to a
 file you can check. Open problems are listed under "Known gaps", not left out.
 
 > The first public release (0.1.0) included the pre-release audit fixes for areas A (tenant isolation / auth),
@@ -72,7 +72,8 @@ address, the `staff` realm, the account belonging to *this* service, and the per
   '*', true)` itself, so injected SQL can widen its own context. Parameterised queries (`Sql.named`) are
   that defence.
 - **The database role must not be a superuser or have `BYPASSRLS`** — `FORCE` does not bind such roles;
-  `Schema.checkRls` refuses to start with one.
+  `Schema.checkRls` refuses to start with one, and (0.5.4) with a role that is a **member** of such a role (also
+  `NOINHERIT`, also through other roles): `SET ROLE` from injected SQL would leave RLS behind.
 - **No context = zero rows.** A pooled connection without a context sees nothing on RLS tables —
   the opposite of a default-open setup. Full access (`'*'`) is reached only explicitly: at runtime
   through `Db.asSystem` (domain→service lookup, log-retention sweep) — one transaction with a local
@@ -144,12 +145,30 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
   `ALTER TABLE … OWNER TO ignis_owner` first, or keep the current role as the owner).
 - Serve: `IGNIS_DB_USER=ignis_rt IGNIS_SCHEMA=validate`. `Schema.checkRls` and the seed work on this role;
   policy changes and DDL fail with `42501 must be owner`. `IGNIS_SCHEMA=update` on it fails the same way.
-- With `IGNIS_REQUIRE_RUNTIME_ROLE=1` a node whose role owns any engine table refuses to start (`StateError`),
+- With `IGNIS_REQUIRE_RUNTIME_ROLE=1` a node whose role owns any engine table — or (0.5.4) is a member of a role
+  that does, also `NOINHERIT` (`SET ROLE` to the owner) — refuses to start (`StateError`),
   in every `IGNIS_SCHEMA` mode and before the schema sync (no DDL first) — set it on serving nodes, not on the
   migrating one. A value other than empty or `1` also refuses to start.
 - A node whose role owns the engine tables while `IGNIS_SCHEMA` is not `update` logs a warning at start-up.
   In the default single-role setup with `IGNIS_SCHEMA=update` (the default) there is no warning — that role
   owns the tables by design. A superuser or `BYPASSRLS` role is not warned about but refused (above).
+- Before deploying 0.5.4 a runtime node's role can be checked with the query below (connected as that role, to
+  the application database, with the node's `search_path`). Any row = the node will be refused:
+  `superuser/bypassrls` always, `owns engine tables` with `IGNIS_REQUIRE_RUNTIME_ROLE=1` (otherwise a warning).
+  The list holds the core tables; add the tables of the app's own `@Entity` classes.
+
+  ```sql
+  SELECT r.rolname, 'superuser/bypassrls' AS why
+    FROM pg_roles r
+   WHERE (r.rolsuper OR r.rolbypassrls) AND pg_has_role(current_user, r.oid, 'MEMBER')
+  UNION
+  SELECT DISTINCT pg_get_userbyid(c.relowner), 'owns engine tables'
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = current_schema()
+     AND c.relname IN ('audit_log', 'domains', 'files', 'folders', 'package_permissions', 'packages', 'permissions',
+                       'services', 'settings', 'user_packages', 'user_permissions', 'users')
+     AND pg_has_role(current_user, c.relowner, 'MEMBER');
+  ```
 - Limit: the runtime role can still widen its own context with `set_config('ignis.service', '*', true)`
   (see above) — the split stops lasting policy changes, not context widening by injected SQL.
 
@@ -169,13 +188,16 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ignis_rt;
   permissions or log in with the old password between the kill and COMMIT. A permission read that started before an
   invalidation cannot write its old result back afterwards (per-user generation `permgen:{login}`, compare-and-set
   cache write); an invalidation that fails on a Redis error is retried from an in-memory, per-node queue only,
-  best-effort until the 15 min cache TTL. Panel and customer sessions both carry
+  best-effort until the 15 min cache TTL. The same queue retries a failed drop of the settings cache
+  (`settings:<service>`, 60 s TTL) after `Permissions.saveSetting`. Panel and customer sessions both carry
   `users.session_epoch`, compared with the database on every request; a password change bumps it, so a session that
   outlives the Redis cleanup is still rejected. The epoch of a new session is the one read with the password hash
   (for 2FA: at the password step), so a change committed during bcrypt or while the code is typed also counts. Session, 2FA, reset and client tokens are
   matched against `^[0-9a-f]{48}$` before Redis.
 - **Rate limits**: login 30 attempts / 5 min per IP, then 5 / 5 min per login+IP pair (panel and
-  front), so a foreign address cannot lock someone else's account. The client IP comes from
+  front), so a foreign address cannot lock someone else's account. `CustomerAccounts.loginWithPassword` /
+  `resetToken` take the address as `ip:`; called without it, every client shares one bucket (one stderr warning per
+  process). The client IP comes from
   `X-Forwarded-For` only behind `IGNIS_TRUSTED_PROXIES`. The second factor is limited **per account**
   (10 wrong codes → 1 h lock), above the per-token counter, so a fresh half-token does not buy new
   tries; an accepted TOTP code cannot be replayed. Limits **fail closed** when Redis is down — there
@@ -234,7 +256,9 @@ another container, a VPN client — then faces just a password. Firewall the app
   accepted and ignored, so escaping is done by `Renderer` (`engine/render.dart`)
   — every String in the model, in nested maps and lists, and object fields read via the generated getters; at output, any
   other value (objects with their own `toString()`, exceptions, records), also inside a printed collection and
-  in the `string` / `join` filters. `striptags` is Ignis' own: Jinja's version unescapes its result, which
+  in the `string` / `join` filters. jinja's other String filters (`upper`, `lower`, `trim`, `title`, …) refuse an
+  object (`TypeError`) instead of printing its `toString()`; `test/render_filters_object_test.dart` keeps every default
+  jinja filter on a reviewed list. `striptags` is Ignis' own: Jinja's version unescapes its result, which
   turned an escaped `<script>` from the model back into markup; ours escapes `<` `>` `"` `'` left in its result. Trusted HTML passes only as `Html(...)`.
   Known limits: the `~` operator concatenates through `toString()` before escaping, so `{{ obj ~ 'x' }}` prints
   the object's `toString()` raw — pass strings (escaped by the model) to `~`, or format the value in Dart; and
