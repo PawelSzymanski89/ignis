@@ -199,6 +199,14 @@ class Schema {
     if (role.isNotEmpty && role.first[1] == true) {
       errors.add('role "${role.first[0]}" is a superuser or has BYPASSRLS — RLS does not apply to it; '
           'set IGNIS_DB_USER to a regular role (table owner, NOSUPERUSER NOBYPASSRLS)');
+    } else {
+      // a member (also NOINHERIT, also through other roles) can SET ROLE to such a role and leave RLS behind
+      final via = await c.execute("SELECT string_agg(rolname::text, ', ' ORDER BY rolname) FROM pg_roles "
+          "WHERE (rolsuper OR rolbypassrls) AND rolname <> current_user AND pg_has_role(current_user, oid, 'MEMBER')");
+      if (via.first[0] != null) {
+        errors.add('role "${role.isEmpty ? '?' : role.first[0]}" is a member of superuser / BYPASSRLS role(s) '
+            '${via.first[0]} — SET ROLE escapes RLS; revoke the membership (REVOKE <role> FROM <IGNIS_DB_USER>)');
+      }
     }
     for (final name in EntityRegistry.names) {
       final m = EntityRegistry.byName(name);
@@ -223,13 +231,14 @@ class Schema {
     return errors;
   }
 
-  /// Whether `current_user` owns any engine table (it can then change or drop the RLS policies).
+  /// Whether `current_user` owns any engine table, or is a member of a role that does — directly or through
+  /// other roles, also NOINHERIT (SET ROLE to the owner, then change or drop the RLS policies).
   static Future<bool> _ownsTables(dynamic c) async {
     final tables = [for (final n in EntityRegistry.names) EntityRegistry.byName(n).table];
     final r = await c.execute(
         Sql.named('''SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                      WHERE n.nspname = current_schema() AND c.relname = ANY(string_to_array(@t, ','))
-                       AND pg_has_role(current_user, c.relowner, 'USAGE'))'''),
+                       AND pg_has_role(current_user, c.relowner, 'MEMBER'))'''),
         parameters: {'t': tables.join(',')});
     return r.first[0] == true;
   }
