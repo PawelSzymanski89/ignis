@@ -5,8 +5,9 @@
 //  It holds SHARED SESSIONS, the permission and domain caches and background job locks —
 //  so the load balancer does round-robin and every node sees the same.
 //
-//  Every call has a 2 s limit. After an error the connection is dropped and the next
-//  call opens a new one — without that a Redis restart meant restarting the nodes.
+//  Every call has a 2 s limit. After a timeout or a socket error the connection is dropped and the next
+//  call opens a new one — without that a Redis restart meant restarting the nodes. An error reply from the
+//  server (-ERR, -NOAUTH …, a RedisError) goes to the caller and keeps the connection.
 //
 //  Environment: IGNIS_REDIS_HOST (required), IGNIS_REDIS_PORT (6379),
 //               IGNIS_REDIS_PASS, IGNIS_REDIS_TLS (1 = TLS).
@@ -50,7 +51,9 @@ class Redis {
     return cmd;
   }
 
-  /// One command with a time limit. Error = we drop the connection, but only THE one the command went through:
+  /// One command with a time limit. An error reply from the server ([RedisError]) is rethrown and the connection
+  /// kept — the socket is fine, and dropping it meant a new TCP connection per failed command.
+  /// Timeout / socket error = we drop the connection, but only THE one the command went through:
   /// commands still hanging on a dead connection finish later and would otherwise close the next,
   /// healthy ones (and the limits are fail-closed — a short outage turned into a series of sign-in refusals).
   static Future<Object?> cmd(List<Object> args) async {
@@ -58,6 +61,8 @@ class Redis {
     final rc = _rc;
     try {
       return await c.send_object(args).timeout(_limit);
+    } on RedisError {
+      rethrow;
     } catch (_) {
       if (identical(_cmd, c)) {
         _cmd = null;
