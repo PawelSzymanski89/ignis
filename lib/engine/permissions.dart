@@ -169,16 +169,21 @@ class Permissions {
       await _invalidateAll(logins);
     } catch (e) {
       _logRedis('cache invalidation failed, retrying', e);
-      _queueRetry(logins, ttl);
+      _queueRetry([for (final l in logins) _key(l)], ttl);
       rethrow;
     }
   }
+
+  /// Drops one queued Redis key: a permission entry with its generation bump, anything else with a plain DEL.
+  static Future<void> _dropKey(String key) => key.startsWith('perm:{') && key.endsWith('}')
+      ? _invalidateOne(key.substring(6, key.length - 1))
+      : Redis.del(key);
 
   static const retryEvery = Duration(seconds: 1);
   static const retryMax = Duration(seconds: 30);
   static const retryMaxKeys = 10000;
 
-  /// login → when to give up on it.
+  /// Redis key (`perm:{<login>}`, `settings:<service>`) → when to give up on it.
   static final _pending = <String, DateTime>{};
   static bool _retrying = false;
   static final _rnd = Random();
@@ -212,7 +217,7 @@ class Permissions {
         if (_pending.isEmpty) break;
         final batch = Map.of(_pending);
         try {
-          await _invalidateAll(batch.keys.toList());
+          await Future.wait([for (final k in batch.keys) _dropKey(k)]);
           // keep a key re-queued meanwhile (a newer failure, later deadline)
           batch.forEach((k, end) {
             if (_pending[k] == end) _pending.remove(k);
@@ -703,12 +708,14 @@ class Permissions {
         'v': secret ? Crypto.encrypt(value, context: '$service|$key') : value,
       },
     );
-    // after COMMIT — otherwise another node would rebuild the cache with the old value
+    // after COMMIT — otherwise another node would rebuild the cache with the old value; a failed DEL goes to the
+    // same retry queue as the permission cache (the entry's TTL is 60 s)
     await Db.afterTransaction(() async {
       try {
         await Redis.del('settings:$service');
       } catch (e) {
-        _logRedis('settings cache not dropped', e);
+        _logRedis('settings cache not dropped, retrying', e);
+        _queueRetry(['settings:$service'], 60);
       }
     });
   }
