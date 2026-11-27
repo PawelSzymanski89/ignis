@@ -5,8 +5,9 @@
 //  API (from PageEngine): saveEntity, readEntity<T>(id), readEntitys<T>().
 //  Primary key: @Entity(pk:) (`id` by default) — save/read/delete/insert/upsert use it.
 //
-//  - saving under a PER-ENTITY LOCK (Redis lock:<Type>:<id>) — no race between nodes;
-//    unlock after the database write,
+//  - saving under a PER-ENTITY LOCK (Redis lock:<Type>:<id>), unlocked after the database write — it makes
+//    collisions between nodes rarer, but is fail-open (~2 s, or Redis down), so it does not prevent a lost
+//    update; that is what `only:` (write just the changed columns) and `ifUnchanged:` (refuse a stale copy) are for,
 //  - @Cached → entity copy in Redis (every node sees the same; read-through; a write invalidates it),
 //  - SQL always parameterized (SQL injection closed at the source).
 // ============================================================================
@@ -308,6 +309,9 @@ class Orm {
 
   /// Simple distributed lock: SET key val NX EX 5, with a short retry.
   /// Takes the lock with a random value; returns it (for release) or null after fail-open.
+  /// It only lowers the chance of two nodes writing one entity at once: after ~2 s (or with Redis down) the write
+  /// goes ahead without it, and the 5 s TTL can run out mid-write. Protection against a lost update is
+  /// `only:` / `ifUnchanged:` of [save] / [upsert], not this lock.
   static Future<String?> lock(String key) async {
     final value = Crypto.randomToken(16);
     for (var i = 0; i < 50; i++) {
