@@ -33,6 +33,7 @@ import 'i18n.dart';
 import 'render.dart';
 import 'upload.dart';
 import 'session.dart';
+import 'signature.dart';
 import 'customer_accounts.dart';
 
 part 'engine_cors.dart';
@@ -527,8 +528,9 @@ class Engine {
     r.newCsrf = r.cookies[csrfCookie] == null;
     r.csrf = r.cookies[csrfCookie] ?? _token();
     if (!r.safe && !r.apiRoute) {
-      // POST/PUT/PATCH/DELETE must have a csrf field == the cookie (otherwise it is a foreign form).
-      if (r.cookies[csrfCookie] == null || r.params['csrf'] != r.cookies[csrfCookie]) {
+      // POST/PUT/PATCH/DELETE must have a csrf field == the cookie (otherwise it is a foreign form); constant time.
+      final cookie = r.cookies[csrfCookie], field = r.params['csrf'];
+      if (cookie == null || field == null || !Signing.equal(field, cookie)) {
         await r.error(HttpStatus.forbidden, 'csrf');
         return false;
       }
