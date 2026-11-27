@@ -181,7 +181,7 @@ environment:
   sdk: ^3.11.0
 dependencies:
   ignis:
-    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.5.2}
+    git: {url: https://github.com/PawelSzymanski89/ignis.git, ref: v0.5.3}
 dev_dependencies:
   build_runner: ^2.4.0
 ```
