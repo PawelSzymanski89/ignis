@@ -157,7 +157,9 @@ Future<ServerSocket> _fakeRedis() async {
         }
       }
       buf = buf.substring(at);
-    }, onError: (_) {}); // the child exits without closing its connection
+      // the child exits without closing its connections; server.close() does not close accepted sockets, so each
+      // one left half-open (CLOSE_WAIT) would keep the parent's event loop alive
+    }, onError: (_) {}, onDone: c.destroy);
   });
   return s;
 }
