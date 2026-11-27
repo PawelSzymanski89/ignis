@@ -8,6 +8,7 @@
 import 'dart:io';
 
 import 'annotations.dart';
+import 'engine.dart' show Engine;
 import 'meta.dart';
 import 'page_engine.dart';
 
@@ -133,6 +134,12 @@ class PageRegistry {
       if ((p.page.api || p.page.cors) && p.cookieAuth) refused.add('${p.page.route} (${p.typeName})');
       if (p.adminPage && (p.page.requires ?? '').isEmpty) open.add('${p.page.route} (${p.typeName})');
       _routes[p.page.route] = PageRoute(p);
+    }
+    final cors = [for (final p in source.pages) if (p.page.cors) '${p.page.route} (${p.typeName})'];
+    if (cors.isNotEmpty && Engine.preflightOrigin == null) {
+      stdout.writeln('Ignis WARNING: @Page(cors: true) routes and Engine.preflightOrigin is not set — the CORS '
+          'preflight lets every Origin through, so each of these pages must call allowOrigin itself: '
+          '${cors.join(', ')}. Set Engine.preflightOrigin before Ignis.start.');
     }
     if (open.isNotEmpty) {
       stdout.writeln('Ignis WARNING: AdminPage routes without @Page(requires:) — every signed-in panel account can '
