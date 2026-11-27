@@ -520,6 +520,7 @@ class Permissions {
   /// so the account must change it on the next visit.
   static Future<void> changePassword(String username, String password, int service,
       {bool all = false, bool forceChange = true}) async {
+    if (!all && !await ours(username, service)) return;
     await (await Db.connect()).execute(
       Sql.named('UPDATE users SET pass_hash=@h, must_change_password=@z WHERE username=@u'
           '${all ? '' : ' AND service=@s'}'),
